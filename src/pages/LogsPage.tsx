@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -27,7 +28,12 @@ import {
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
-import { logsApi, type LogsQuery } from '@/services/api/logs';
+import {
+  buildLogsSearchQueryFromParams,
+  logsApi,
+  readLogsStructuredFiltersFromParams,
+  type LogsQuery,
+} from '@/services/api/logs';
 import { copyToClipboard } from '@/utils/clipboard';
 import { getErrorMessage } from '@/utils/helpers';
 import { downloadBlob } from '@/utils/download';
@@ -140,6 +146,7 @@ type TabType = 'logs' | 'errors';
 
 export function LogsPage() {
   const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
   const { showNotification, showConfirmation } = useNotificationStore();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const config = useConfigStore((state) => state.config);
@@ -185,6 +192,8 @@ export function LogsPage() {
   } | null>(null);
   const logRequestInFlightRef = useRef(false);
   const pendingFullReloadRef = useRef(false);
+  const querySearchAppliedRef = useRef('');
+  const queryFiltersAppliedRef = useRef('');
 
   // 保存最新游标用于增量获取；新接口优先使用 cursor，旧接口继续使用 after。
   const logPositionRef = useRef<LogPosition>({});
@@ -468,6 +477,14 @@ export function LogsPage() {
   const trimmedSearchQuery = deferredSearchQuery.trim();
   const isSearching = trimmedSearchQuery.length > 0;
   const baseLines = isSearching ? logState.buffer : visibleLines;
+  const querySearchText = useMemo(
+    () => buildLogsSearchQueryFromParams(searchParams),
+    [searchParams]
+  );
+  const queryStructuredFilters = useMemo(
+    () => readLogsStructuredFiltersFromParams(searchParams),
+    [searchParams]
+  );
 
   const parsedSearchLines = useMemo(() => {
     let working = baseLines;
@@ -487,7 +504,34 @@ export function LogsPage() {
   const filters = useLogFilters({ parsedLines: parsedSearchLines });
   const structuredFiltersPanelId = 'logs-structured-filters';
   const structuredFilterCount =
-    filters.methodFilters.length + filters.statusFilters.length + filters.pathFilters.length;
+    filters.methodFilters.length +
+    filters.statusFilters.length +
+    filters.pathFilters.length +
+    filters.sourceFilters.length;
+
+  useEffect(() => {
+    if (!querySearchText || querySearchAppliedRef.current === querySearchText) return;
+    querySearchAppliedRef.current = querySearchText;
+    setSearchQuery(querySearchText);
+  }, [querySearchText]);
+
+  useEffect(() => {
+    const filtersKey = JSON.stringify(queryStructuredFilters);
+    if (queryFiltersAppliedRef.current === filtersKey) return;
+    const hasFilters =
+      queryStructuredFilters.methods.length > 0 ||
+      queryStructuredFilters.statuses.length > 0 ||
+      queryStructuredFilters.paths.length > 0 ||
+      queryStructuredFilters.sources.length > 0;
+    if (!hasFilters) return;
+    queryFiltersAppliedRef.current = filtersKey;
+    filters.applyStructuredFilters({
+      methods: queryStructuredFilters.methods,
+      statuses: queryStructuredFilters.statuses,
+      paths: queryStructuredFilters.paths,
+      sources: queryStructuredFilters.sources,
+    });
+  }, [filters, queryStructuredFilters]);
 
   const { filteredParsedLines, filteredLines, removedCount } = useMemo(() => {
     const filteredParsed = parsedSearchLines.filter((line) => {
@@ -510,6 +554,13 @@ export function LogsPage() {
         return false;
       }
 
+      if (
+        filters.sourceFilterSet.size > 0 &&
+        (!line.source || !filters.sourceFilterSet.has(line.source))
+      ) {
+        return false;
+      }
+
       return true;
     });
 
@@ -522,6 +573,7 @@ export function LogsPage() {
     baseLines,
     filters.methodFilterSet,
     filters.pathFilterSet,
+    filters.sourceFilterSet,
     filters.statusFilterSet,
     parsedSearchLines,
   ]);
@@ -816,6 +868,35 @@ export function LogsPage() {
                               title={path}
                             >
                               {path} ({count})
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={styles.filterChipGroup}>
+                    <span className={styles.filterChipLabel}>
+                      {t('logs.filter_source', { defaultValue: 'Source' })}
+                    </span>
+                    <div className={styles.filterChipList}>
+                      {filters.sourceOptions.length === 0 ? (
+                        <span className={styles.filterChipHint}>
+                          {t('logs.filter_source_empty', { defaultValue: 'No source candidates' })}
+                        </span>
+                      ) : (
+                        filters.sourceOptions.map(({ source, count }) => {
+                          const active = filters.sourceFilters.includes(source);
+                          return (
+                            <button
+                              key={source}
+                              type="button"
+                              className={`${styles.filterChip} ${active ? styles.filterChipActive : ''}`}
+                              onClick={() => filters.toggleSourceFilter(source)}
+                              aria-pressed={active}
+                              title={source}
+                            >
+                              {source} ({count})
                             </button>
                           );
                         })

@@ -1,4 +1,5 @@
 import { normalizeOpenCodeGoSourceIdentity } from '@/services/api/opencodeGo';
+import { buildSafeLogsPath } from '@/services/api/logs';
 import type { MonitoringEvent } from '@/services/api/usageService';
 import type { OpenCodeGoIdentity } from '@/types/opencodeGo';
 import { isMonitoringRecord, readMonitoringString } from './base';
@@ -32,9 +33,7 @@ const maybeSetSafeQuery = (
 };
 
 export const buildMonitoringSafeLogsPath = (query: Record<string, string>): string => {
-  const params = new URLSearchParams(query);
-  const suffix = params.toString();
-  return suffix ? `/logs?${suffix}` : '/logs';
+  return buildSafeLogsPath(query);
 };
 
 export const buildMonitoringExportPath = (query: Record<string, string>): string => {

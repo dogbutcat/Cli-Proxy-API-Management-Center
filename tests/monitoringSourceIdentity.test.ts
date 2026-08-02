@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { deriveOpenCodeGoAuthFileIdentity } from '../src/features/authFiles/identity';
+import {
+  buildMonitoringSafeLogsPath,
+  deriveMonitoringSourceIdentity,
+} from '../src/features/monitoring/model/sourceDisplay';
+import { buildLogsSearchQueryFromParams } from '../src/services/api/logs';
 import { normalizeOpenCodeGoSourceIdentity } from '../src/services/api/opencodeGo';
 import type { AuthFileItem } from '../src/types';
 
@@ -56,5 +61,51 @@ describe('OpenCode Go monitoring source identity', () => {
     expect(source.label).toBe('opencode-go');
     expect(source.identityKey).toBe('workspace:workspace-a');
     expect(source.ignoredUnsafeFields).toEqual(['account', 'api-key', 'cookie']);
+  });
+
+  test('monitoring log links carry safe searchable identity without secrets', () => {
+    const source = deriveMonitoringSourceIdentity(
+      {
+        eventHash: 'event-a',
+        timestampMs: 1785626400000,
+        provider: 'opencode-go',
+        authProviderSnapshot: 'opencode-go',
+        model: 'gpt-5-codex',
+        endpoint: '/v1/chat/completions',
+        authIndex: 'auth-a',
+        sourceHash: 'source-hash-a',
+        accountSnapshot: 'raw-account-secret',
+        authLabelSnapshot: 'Team Alias',
+        totalTokens: 100,
+        failed: false,
+      },
+      null,
+      {
+        provider: 'opencode-go',
+        workspace: 'workspace-a',
+        protocol: 'codex',
+        account: 'raw-account-secret',
+        'api-key': 'raw-api-key-secret',
+        cookie: 'raw-cookie-secret',
+      }
+    );
+
+    const path = buildMonitoringSafeLogsPath({
+      ...source.safeQuery,
+      account: 'raw-account-secret',
+      cookie: 'raw-cookie-secret',
+    });
+    const params = new URLSearchParams(path.slice(path.indexOf('?') + 1));
+
+    expect(path).toContain('/logs?');
+    expect(path).toContain('provider=opencode-go');
+    expect(path).toContain('source_hash=source-hash-a');
+    expect(path).toContain('identity_key=workspace%3Aworkspace-a');
+    expect(buildLogsSearchQueryFromParams(params)).toContain('workspace:workspace-a');
+    expect(path).not.toContain('account');
+    expect(path).not.toContain('cookie');
+    expect(path).not.toContain('raw-account-secret');
+    expect(path).not.toContain('raw-api-key-secret');
+    expect(path).not.toContain('raw-cookie-secret');
   });
 });
