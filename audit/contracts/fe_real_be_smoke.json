@@ -1,0 +1,70 @@
+{
+  "auth_negative_status": 401,
+  "be_worktree": "/Users/oliver/Documents/Projects/ai/CLIProxyAPI-upgrade-be-bc71c77",
+  "contract_sha256": "eb5b3efb996b972520370aa20385358c88885b66de86d5cdaa171ff71fcb5a44",
+  "fe_worktree": "/Users/oliver/Documents/Projects/ai/Cli-Proxy-API-Management-Center-upgrade-fe-b1aefec",
+  "routes": [
+    {
+      "name": "capabilities",
+      "status": 200
+    },
+    {
+      "name": "usage_status",
+      "status": 200
+    },
+    {
+      "name": "auth_files",
+      "status": 200
+    },
+    {
+      "name": "opencode",
+      "status": 200
+    },
+    {
+      "name": "opencode_quota",
+      "status": 200
+    },
+    {
+      "name": "dashboard",
+      "status": 500
+    },
+    {
+      "name": "monitoring_accounts",
+      "status": 500
+    },
+    {
+      "name": "monitoring_keys",
+      "status": 500
+    },
+    {
+      "name": "monitoring_realtime",
+      "status": 500
+    },
+    {
+      "name": "monitoring_selectors",
+      "status": 500
+    },
+    {
+      "name": "monitoring_analytics",
+      "status": 400
+    },
+    {
+      "name": "model_prices",
+      "status": 500
+    },
+    {
+      "name": "model_prices_usage",
+      "status": 500
+    },
+    {
+      "name": "account_actions",
+      "status": 501
+    },
+    {
+      "name": "import_session",
+      "status": 201
+    }
+  ],
+  "stage": "G5",
+  "status": "PASS"
+}

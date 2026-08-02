@@ -1,0 +1,56 @@
+{
+  "status": "PASS",
+  "stage": "G5",
+  "worktree": "/Users/oliver/Documents/Projects/ai/Cli-Proxy-API-Management-Center-upgrade-fe-b1aefec",
+  "branch": "codex/upgrade-fe-b1aefec",
+  "checkpoint": "8efcc9f29e8d4fb1afeb760ae01335c19dc8adb3",
+  "be_worktree": "/Users/oliver/Documents/Projects/ai/CLIProxyAPI-upgrade-be-bc71c77",
+  "be_checkpoint": "5f38c2006af1f1bb5c147cc3dda770473bb333d1",
+  "contract_record": "/Users/oliver/Documents/Projects/ai/myclaude/memories/plans/upgrade_be_fe_upstream/audit/contracts/api_contract.json",
+  "contract_sha256": "eb5b3efb996b972520370aa20385358c88885b66de86d5cdaa171ff71fcb5a44",
+  "test_record": "/Users/oliver/Documents/Projects/ai/Cli-Proxy-API-Management-Center-upgrade-fe-b1aefec/audit/reviews/fe_tests.md",
+  "smoke_record": "/Users/oliver/Documents/Projects/ai/Cli-Proxy-API-Management-Center-upgrade-fe-b1aefec/audit/contracts/fe_real_be_smoke.json",
+  "generated_at_utc": "2026-08-02T08:40:09Z",
+  "checks": {
+    "targeted_matrix": "PASS",
+    "verify": "PASS",
+    "diff_check": "PASS",
+    "real_be_smoke": "PASS",
+    "contract_hash": "PASS",
+    "inventory": "PASS",
+    "source_changes": "PASS"
+  },
+  "commands": {
+    "targeted_matrix": {
+      "exit": 0,
+      "summary": "115 pass, 0 fail across 20 files"
+    },
+    "bun_run_verify": {
+      "exit": 0,
+      "summary": "391 pass, 0 fail; lint passed; build passed"
+    },
+    "git_diff_check": {
+      "exit": 0,
+      "summary": "no whitespace errors"
+    },
+    "real_be_smoke": {
+      "exit": 0,
+      "summary": "FE_REAL_BE_SMOKE_OK"
+    }
+  },
+  "hashes": {
+    "targeted_test_files_sha256": "da778b6605a07daca61459c21fd3921a5cc80f794ff1feddd4befcfd6594f604",
+    "smoke_script_sha256": "a9d983de658bde852c1c5571dcb1360dcf753fac79dd1784da4f5b986c33dcda",
+    "smoke_json_sha256": "c24bc3c85f55ffc452302ef536d5331a0d9935870b147c2e1e305944cf373736",
+    "smoke_markdown_sha256": "aafd754776e93e347e3480630f67bb83632b07ee236e2ff29e7cbb6ae7d36b22",
+    "fe_overlap_inventory_sha256": "611de9bfe613f56317c6e9cd787fa18599d684aa8878aedb75d0802ef5a9d728"
+  },
+  "inventory": {
+    "plan_package_fe_inventory": "/Users/oliver/Documents/Projects/ai/myclaude/memories/plans/upgrade_be_fe_upstream/audit/inventory/fe_commits.tsv",
+    "plan_package_fe_overlap_paths": "/Users/oliver/Documents/Projects/ai/myclaude/memories/plans/upgrade_be_fe_upstream/audit/inventory/fe_overlap_paths.txt",
+    "overlap_count": 35,
+    "local_branch_upstream": "",
+    "product_source_changes": "none"
+  },
+  "blockers": []
+}
