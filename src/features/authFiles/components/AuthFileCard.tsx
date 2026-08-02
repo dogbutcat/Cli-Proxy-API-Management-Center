@@ -20,6 +20,8 @@ import { formatFileSize } from '@/utils/format';
 import {
   QUOTA_PROVIDER_TYPES,
   formatModified,
+  getAuthFileOperationName,
+  getAuthFileProviderKey,
   getAuthFileIcon,
   getAuthFileStatusMessage,
   getThemeSurfaceIconBackground,
@@ -28,12 +30,14 @@ import {
   getTypeLabel,
   isRuntimeOnlyAuthFile,
   isThemeSurfaceIconProvider,
-  normalizeProviderKey,
   supportsAuthFileManualRefresh,
   type QuotaProviderType,
   type ResolvedTheme,
 } from '@/features/authFiles/constants';
-import { deriveAuthFileIdentity } from '@/features/authFiles/identity';
+import {
+  deriveAuthFileIdentity,
+  deriveOpenCodeGoAuthFileIdentity,
+} from '@/features/authFiles/identity';
 import type { AuthFileStatusBarData } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
 import { AuthFileQuotaSection } from '@/features/authFiles/components/AuthFileQuotaSection';
 import styles from './AuthFileCard.module.scss';
@@ -90,7 +94,8 @@ export function AuthFileCard(props: AuthFileCardProps) {
   } = props;
 
   const isRuntimeOnly = isRuntimeOnlyAuthFile(file);
-  const providerKey = normalizeProviderKey(String(file.type ?? file.provider ?? 'unknown'));
+  const operationName = getAuthFileOperationName(file);
+  const providerKey = getAuthFileProviderKey(file) || 'unknown';
   const isAistudio = providerKey === 'aistudio';
   const showModelsButton = !isRuntimeOnly || isAistudio;
   const showManualRefreshButton = !isRuntimeOnly && supportsAuthFileManualRefresh(providerKey);
@@ -108,8 +113,11 @@ export function AuthFileCard(props: AuthFileCardProps) {
   const successCount = file.successCount ?? 0;
   const failureCount = file.failureCount ?? 0;
   const authIndexKey = typeof file.authIndex === 'string' ? file.authIndex : null;
+  const identityKey =
+    providerKey === 'opencode-go' ? deriveOpenCodeGoAuthFileIdentity(file).identityKey : '';
   const statusData =
     (authIndexKey && statusBarCache.get(authIndexKey)) ||
+    (identityKey && statusBarCache.get(identityKey)) ||
     statusBarDataFromRecentRequests(file.recentRequests ?? []);
 
   const rawStatusMessage = getAuthFileStatusMessage(file);
@@ -160,7 +168,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
         {!isRuntimeOnly && (
           <SelectionCheckbox
             checked={selected}
-            onChange={() => onToggleSelect(file.name)}
+            onChange={() => onToggleSelect(operationName)}
             className={styles.selection}
             aria-label={
               selected ? t('auth_files.batch_deselect') : t('auth_files.batch_select_all')
@@ -325,7 +333,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => onDownload(file.name)}
+                onClick={() => onDownload(operationName)}
                 className={styles.iconButton}
                 title={t('auth_files.download_button')}
                 disabled={disableControls}
@@ -345,12 +353,16 @@ export function AuthFileCard(props: AuthFileCardProps) {
               <Button
                 variant="danger"
                 size="sm"
-                onClick={() => onDelete(file.name)}
+                onClick={() => onDelete(operationName)}
                 className={styles.iconButton}
                 title={t('auth_files.delete_button')}
-                disabled={disableControls || deleting === file.name || isManualRefreshing}
+                disabled={disableControls || deleting === operationName || isManualRefreshing}
               >
-                {deleting === file.name ? <LoadingSpinner size={14} /> : <IconTrash2 size={15} />}
+                {deleting === operationName ? (
+                  <LoadingSpinner size={14} />
+                ) : (
+                  <IconTrash2 size={15} />
+                )}
               </Button>
             </div>
           )}

@@ -105,4 +105,31 @@ describe('auth-files response normalization', () => {
     expect(result.files[0]?.account).toBe('sk-live-abcd');
     expect(result.files[0]?.accountType).toBeUndefined();
   });
+
+  test('keeps duplicate OpenCode workspace entries visible when operation names differ', () => {
+    const result = normalizeAuthFilesResponse(
+      responseWithRawFiles([
+        {
+          name: 'opencode-openai.json',
+          type: 'opencode-go',
+          workspace: 'workspace-a',
+          protocol: 'openai',
+          runtime_only: true,
+        },
+        {
+          name: 'opencode-anthropic.json',
+          type: 'opencode-go',
+          workspace: 'workspace-a',
+          protocol: 'anthropic',
+          runtime_only: true,
+        },
+      ])
+    );
+
+    expect(result.files.map((file) => file.name)).toEqual([
+      'opencode-anthropic.json',
+      'opencode-openai.json',
+    ]);
+    expect(result.files.map((file) => file.runtimeOnly)).toEqual([true, true]);
+  });
 });

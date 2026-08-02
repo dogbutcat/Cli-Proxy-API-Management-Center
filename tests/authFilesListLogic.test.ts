@@ -4,6 +4,12 @@ import {
   matchesAuthFileSearch,
   sortAuthFiles,
 } from '../src/features/authFiles/logic';
+import {
+  getAuthFileOperationName,
+  getAuthFileProviderKey,
+  isProblemAuthFile,
+  normalizeProviderKey,
+} from '../src/features/authFiles/constants';
 import type { AuthFileItem } from '../src/types';
 
 const authFile = (overrides: Partial<AuthFileItem> = {}): AuthFileItem => ({
@@ -77,8 +83,76 @@ describe('matchesAuthFileSearch', () => {
     ).toBe(false);
   });
 
+  test('matches OpenCode safe identity fields without exposing secrets', () => {
+    const file = authFile({
+      name: 'sk-live-secret.json',
+      type: 'opencode-go',
+      account: 'sk-live-secret',
+      cookie: 'session=secret',
+      opencodeGoIdentity: {
+        provider: 'opencode-go',
+        workspace: 'workspace-a',
+        entry: 'entry-a',
+        protocol: 'anthropic',
+        label: 'Team workspace',
+        identityKey: 'workspace:workspace-a',
+        status: 'runtime-only',
+        diagnostic: 'runtime-only',
+        diagnostics: [],
+        keySource: 'workspace',
+        labelSource: 'label',
+        ignoredUnsafeFields: [],
+        alias: '',
+        project: '',
+      },
+    });
+
+    expect(search(file, 'team workspace')).toBe(true);
+    expect(search(file, 'workspace:workspace-a')).toBe(true);
+    expect(search(file, 'session=secret')).toBe(false);
+    expect(search(file, 'sk-live-secret')).toBe(false);
+  });
+
   test('tolerates missing fields', () => {
     expect(search({ name: 'bare.json' }, 'zzz')).toBe(false);
+  });
+});
+
+describe('OpenCode auth file classification', () => {
+  test('normalizes OpenCode provider aliases to one auth-files tab key', () => {
+    expect(normalizeProviderKey('opencodeGo')).toBe('opencode-go');
+    expect(getAuthFileProviderKey(authFile({ type: 'opencodeGo' }))).toBe('opencode-go');
+    expect(
+      getAuthFileProviderKey(
+        authFile({
+          type: undefined,
+          provider: undefined,
+          opencodeGoIdentity: { provider: 'opencode-go' },
+        })
+      )
+    ).toBe('opencode-go');
+  });
+
+  test('treats monthly exhausted OpenCode entries as problem credentials', () => {
+    expect(isProblemAuthFile(authFile({ type: 'opencode-go', status: 'monthly_exhausted' }))).toBe(
+      true
+    );
+    expect(
+      isProblemAuthFile(
+        authFile({ type: 'opencode-go', status: 'monthly_exhausted', disabled: true })
+      )
+    ).toBe(false);
+  });
+
+  test('keeps OpenCode operation identity on the real file name', () => {
+    const file = authFile({
+      name: 'opencode-go-real-file.json',
+      type: 'opencode-go',
+      workspace: 'workspace-a',
+    });
+
+    expect(getAuthFileProviderKey(file)).toBe('opencode-go');
+    expect(getAuthFileOperationName(file)).toBe('opencode-go-real-file.json');
   });
 });
 

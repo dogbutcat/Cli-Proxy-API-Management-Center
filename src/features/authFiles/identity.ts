@@ -22,7 +22,7 @@ import type {
 } from '../../types/opencodeGo';
 import type { AuthFileItem } from '../../types/authFile';
 
-export type AuthFileIdentityKind = 'email' | 'projectId' | 'fileName';
+export type AuthFileIdentityKind = 'email' | 'projectId' | 'fileName' | 'safeSource';
 export type SafeSourceIdentityDiagnostic = OpenCodeGoIdentityStatus;
 
 export type SafeSourceIdentityInput = OpenCodeGoIdentityInput;
@@ -53,6 +53,84 @@ export type AuthFileIdentity = {
 const readIdentityText = (value: unknown): string =>
   typeof value === 'string' ? value.trim() : '';
 
+const normalizeAuthFileProviderKey = (value: unknown): string => {
+  const key = readIdentityText(value).toLowerCase().replace(/_/g, '-');
+  if (key === 'opencode' || key === 'opencodego' || key === 'opencode-go') return 'opencode-go';
+  return key;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const isOpenCodeGoIdentity = (value: unknown): value is OpenCodeGoIdentity =>
+  isRecord(value) &&
+  ('identityKey' in value || 'label' in value || 'workspace' in value || 'entry' in value);
+
+const hasOpenCodeGoIdentitySignal = (file: AuthFileItem): boolean => {
+  const type = normalizeAuthFileProviderKey(file.type);
+  const provider = normalizeAuthFileProviderKey(file.provider);
+  const identity = file.opencodeGoIdentity;
+  return (
+    type === 'opencode-go' ||
+    provider === 'opencode-go' ||
+    isOpenCodeGoIdentity(identity) ||
+    file['opencode_go_identity'] !== undefined
+  );
+};
+
+const readOpenCodeGoIdentityInput = (file: AuthFileItem): OpenCodeGoIdentityInput => {
+  const existing = (
+    isRecord(file.opencodeGoIdentity)
+      ? file.opencodeGoIdentity
+      : isRecord(file['opencode_go_identity'])
+        ? file['opencode_go_identity']
+        : {}
+  ) as OpenCodeGoIdentityInput;
+
+  return {
+    ...existing,
+    aliases:
+      existing.aliases ?? file.aliases ?? file.alias ?? file['model-alias'] ?? file.model_alias,
+    provider: existing.provider ?? file.provider ?? file.type,
+    entry: existing.entry ?? file.authIndex ?? file['auth_index'] ?? file.name,
+    workspace: existing.workspace ?? file.workspace ?? file.workspaceId ?? file['workspace_id'],
+    project: existing.project ?? file.projectId ?? file['project_id'],
+    protocol: existing.protocol ?? file.protocol ?? file.protocolType ?? file['protocol_type'],
+    label: existing.label ?? file.label ?? file.displayName ?? file['display_name'],
+    runtimeOnly: existing.runtimeOnly ?? file.runtimeOnly ?? file['runtime_only'],
+    configured:
+      existing.configured ??
+      file.configured ??
+      file.configuredPending ??
+      file['configured_pending'],
+    canonical: existing.canonical ?? file.canonical,
+    legacy: existing.legacy ?? file.legacy,
+    status: existing.status ?? file.status,
+    source: existing.source ?? file.source,
+    account: file.account,
+    apiKey: file.apiKey ?? file['api_key'] ?? file['api-key'],
+    cookie: file.cookie,
+    authorization: file.authorization,
+    headers: file.headers,
+  };
+};
+
+const readOpenCodeGoPreferredLabel = (file: AuthFileItem): string => {
+  const existing = (
+    isRecord(file.opencodeGoIdentity)
+      ? file.opencodeGoIdentity
+      : isRecord(file['opencode_go_identity'])
+        ? file['opencode_go_identity']
+        : {}
+  ) as OpenCodeGoIdentityInput;
+  const labelSource = readIdentityText(existing.labelSource);
+  if (labelSource === 'alias' || labelSource === 'label') {
+    const label = readIdentityText(existing.label);
+    if (label) return label;
+  }
+  return readIdentityText(file.label ?? file.displayName ?? file['display_name']);
+};
+
 export const deriveSafeSourceIdentity = (
   input: SafeSourceIdentityInput = {}
 ): SafeSourceIdentity => {
@@ -71,26 +149,40 @@ export const deriveSafeSourceIdentity = (
 };
 
 export const deriveOpenCodeGoAuthFileIdentity = (file: AuthFileItem): OpenCodeGoIdentity =>
-  normalizeOpenCodeGoIdentity({
-    aliases: file.aliases ?? file.alias ?? file['model-alias'] ?? file.model_alias,
-    provider: file.provider ?? file.type,
-    entry: file.authIndex ?? file['auth_index'] ?? file.name,
-    workspace: file.workspace ?? file.workspaceId ?? file['workspace_id'],
-    project: file.projectId ?? file['project_id'],
-    protocol: file.protocol ?? file.protocolType ?? file['protocol_type'],
-    label: file.label ?? file.displayName ?? file['display_name'],
-    runtimeOnly: file.runtimeOnly ?? file['runtime_only'],
-    configured: file.configured ?? file.configuredPending ?? file['configured_pending'],
-    canonical: file.canonical,
-    legacy: file.legacy,
-    status: file.status,
-    source: file.source,
-    account: file.account,
-    apiKey: file.apiKey ?? file['api_key'] ?? file['api-key'],
-    cookie: file.cookie,
-    authorization: file.authorization,
-    headers: file.headers,
-  });
+  normalizeOpenCodeGoIdentity(readOpenCodeGoIdentityInput(file));
+
+const buildOpenCodeGoSecondary = (identity: OpenCodeGoIdentity): string | null => {
+  const parts = [identity.identityKey, identity.protocol].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+};
+
+const buildOpenCodeGoPrimary = (
+  identity: OpenCodeGoIdentity,
+  preferredLabel: string,
+  fallbackName: string
+): string =>
+  preferredLabel || (identity.labelSource !== 'provider' && identity.label)
+    ? preferredLabel || identity.label
+    : identity.workspace ||
+      identity.project ||
+      identity.entry ||
+      identity.protocol ||
+      identity.label ||
+      stripJsonExtension(fallbackName);
+
+export const deriveOpenCodeGoDisplayIdentity = (file: AuthFileItem): AuthFileIdentity => {
+  const fullName = readIdentityText(file.name);
+  const identity = deriveOpenCodeGoAuthFileIdentity(file);
+  const primary = buildOpenCodeGoPrimary(identity, readOpenCodeGoPreferredLabel(file), fullName);
+  const secondary = buildOpenCodeGoSecondary(identity);
+
+  return {
+    primary,
+    kind: 'safeSource',
+    secondary,
+    fullName: secondary || primary,
+  };
+};
 
 /** Strip the .json suffix case-insensitively, but only when content remains. */
 export const stripJsonExtension = (name: string): string => {
@@ -105,6 +197,10 @@ export const stripJsonExtension = (name: string): string => {
  * where name === email === channel ID are handled by the secondary-row dedupe.
  */
 export const deriveAuthFileIdentity = (file: AuthFileItem): AuthFileIdentity => {
+  if (hasOpenCodeGoIdentitySignal(file)) {
+    return deriveOpenCodeGoDisplayIdentity(file);
+  }
+
   const fullName = readIdentityText(file.name);
   const base = stripJsonExtension(fullName);
   const email = readIdentityText(file.email);

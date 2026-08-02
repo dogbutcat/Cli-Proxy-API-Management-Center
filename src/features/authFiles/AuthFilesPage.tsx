@@ -13,6 +13,7 @@ import {
   QUOTA_PROVIDER_TYPES,
   clampCardPageSize,
   getTypeLabel,
+  getAuthFileProviderKey,
   isProblemAuthFile,
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
@@ -378,7 +379,7 @@ export function AuthFilesPage() {
   const existingTypes = useMemo(() => {
     const types = new Set<string>(['all']);
     files.forEach((file) => {
-      const type = normalizeProviderKey(String(file.type ?? file.provider ?? ''));
+      const type = getAuthFileProviderKey(file);
       if (type) types.add(type);
     });
     return Array.from(types);
@@ -418,7 +419,7 @@ export function AuthFilesPage() {
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = { all: filesMatchingStatusFilters.length };
     filesMatchingStatusFilters.forEach((file) => {
-      const type = normalizeProviderKey(String(file.type ?? file.provider ?? ''));
+      const type = getAuthFileProviderKey(file);
       if (!type) return;
       counts[type] = (counts[type] || 0) + 1;
     });
@@ -431,7 +432,7 @@ export function AuthFilesPage() {
   const filtered = useMemo(
     () =>
       filesMatchingStatusFilters.filter((item) => {
-        const type = normalizeProviderKey(String(item.type ?? item.provider ?? ''));
+        const type = getAuthFileProviderKey(item);
         const matchType = normalizedFilter === 'all' || type === normalizedFilter;
         return matchType && matchesAuthFileSearch(item, normalizedSearch, wildcardSearch);
       }),

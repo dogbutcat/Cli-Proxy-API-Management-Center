@@ -42,6 +42,7 @@ export const OAUTH_PROVIDER_PRESETS = [
   'xai',
   'claude',
   'codex',
+  'opencode-go',
   'kimi',
 ];
 
@@ -71,6 +72,7 @@ export const AUTH_FILE_ICONS: Record<string, AuthFileIconAsset> = {
   aistudio: iconGemini,
   claude: iconClaude,
   codex: iconCodex,
+  'opencode-go': iconCodex,
   gemini: iconGemini,
   xai: { light: iconGrok, dark: iconGrokDark },
   iflow: iconIflow,
@@ -82,7 +84,35 @@ export const AUTH_FILE_ICONS: Record<string, AuthFileIconAsset> = {
 export const clampCardPageSize = (value: number) =>
   Math.min(MAX_CARD_PAGE_SIZE, Math.max(MIN_CARD_PAGE_SIZE, Math.round(value)));
 
-export const normalizeProviderKey = normalizeOAuthProviderKey;
+const AUTH_FILE_PROVIDER_ALIASES: Record<string, string> = {
+  opencode: 'opencode-go',
+  opencodego: 'opencode-go',
+  'opencode-go': 'opencode-go',
+};
+
+export const normalizeProviderKey = (value: string): string => {
+  const key = normalizeOAuthProviderKey(value);
+  return AUTH_FILE_PROVIDER_ALIASES[key] ?? key;
+};
+
+const readProviderIdentityText = (value: unknown, key: string): string => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === 'string' ? raw.trim() : '';
+};
+
+export const getAuthFileProviderKey = (file: AuthFileItem): string => {
+  const identityProvider = normalizeProviderKey(
+    readProviderIdentityText(file.opencodeGoIdentity, 'provider') ||
+      readProviderIdentityText(file['opencode_go_identity'], 'provider')
+  );
+  if (identityProvider === 'opencode-go') return identityProvider;
+
+  const direct = normalizeProviderKey(String(file.provider ?? file.type ?? ''));
+  if (direct) return direct;
+
+  return identityProvider;
+};
 
 export const supportsAuthFileManualRefresh = (provider: unknown): boolean =>
   AUTH_FILE_MANUAL_REFRESH_PROVIDERS.has(normalizeProviderKey(String(provider ?? '')));
@@ -120,8 +150,20 @@ export const HEALTHY_AUTH_FILE_STATUS_MESSAGES = new Set([
   'available',
 ]);
 
+export const WARNING_AUTH_FILE_STATUSES = new Set([
+  'error',
+  'unavailable',
+  'exhausted',
+  'monthly_exhausted',
+  'monthly-exhausted',
+  'quota_exhausted',
+  'quota-exhausted',
+]);
+
 /** 是否存在非健康的 status_message（卡片告警态 / 谱条琥珀色共用判定）。 */
 export const hasAuthFileStatusWarning = (file: AuthFileItem): boolean => {
+  const status = typeof file.status === 'string' ? file.status.trim().toLowerCase() : '';
+  if (WARNING_AUTH_FILE_STATUSES.has(status)) return true;
   const message = getAuthFileStatusMessage(file);
   return Boolean(message) && !HEALTHY_AUTH_FILE_STATUS_MESSAGES.has(message.toLowerCase());
 };
@@ -133,7 +175,11 @@ export const hasAuthFileStatusWarning = (file: AuthFileItem): boolean => {
 export const isProblemAuthFile = (file: AuthFileItem): boolean => {
   const status = typeof file.status === 'string' ? file.status.trim().toLowerCase() : '';
   if (file.disabled === true || status === 'disabled') return false;
-  return file.unavailable === true || status === 'error' || hasAuthFileStatusWarning(file);
+  return (
+    file.unavailable === true ||
+    WARNING_AUTH_FILE_STATUSES.has(status) ||
+    hasAuthFileStatusWarning(file)
+  );
 };
 
 export const getTypeLabel = (t: TFunction, type: string): string => {
@@ -141,6 +187,7 @@ export const getTypeLabel = (t: TFunction, type: string): string => {
   const key = `auth_files.filter_${providerKey}`;
   const translated = t(key);
   if (translated !== key) return translated;
+  if (providerKey === 'opencode-go') return 'OpenCode Go';
   if (providerKey === 'iflow') return 'iFlow';
   return type.charAt(0).toUpperCase() + type.slice(1);
 };
@@ -233,6 +280,8 @@ export function isRuntimeOnlyAuthFile(file: AuthFileItem): boolean {
   if (typeof raw === 'string') return raw.trim().toLowerCase() === 'true';
   return false;
 }
+
+export const getAuthFileOperationName = (file: AuthFileItem): string => file.name;
 
 export const formatModified = (item: AuthFileItem): string => {
   const raw = item['modtime'] ?? item.modified;

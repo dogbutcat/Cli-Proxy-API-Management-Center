@@ -4,11 +4,16 @@
  */
 
 import type { AuthFileItem } from '@/types';
-import { normalizeProviderKey } from './constants';
+import { getAuthFileProviderKey, getAuthFileOperationName } from './constants';
 import { deriveAuthFileIdentity } from './identity';
 import type { AuthFilesSortMode } from './uiState';
 
 const escapeWildcardSearchSegment = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const compareAscii = (left: string, right: string): number => {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+};
 
 /** 不含 '*' 时返回 null（走 includes 路径）。刻意不加 ^/$ 锚点——保持子串语义。 */
 export const buildWildcardSearch = (value: string): RegExp | null => {
@@ -28,7 +33,22 @@ export const matchesAuthFileSearch = (
 ): boolean => {
   if (!term) return true;
   const needle = term.toLowerCase();
-  return [file.name, file.type, file.provider, file.email, file.projectId].some((value) => {
+  const identity = deriveAuthFileIdentity(file);
+  const providerKey = getAuthFileProviderKey(file);
+  const searchableValues =
+    providerKey === 'opencode-go'
+      ? [providerKey, identity.primary, identity.secondary]
+      : [
+          file.name,
+          file.type,
+          file.provider,
+          file.email,
+          file.projectId,
+          identity.primary,
+          identity.secondary,
+        ];
+
+  return searchableValues.some((value) => {
     const content = (value || '').toString();
     return wildcard ? wildcard.test(content) : content.toLowerCase().includes(needle);
   });
@@ -39,18 +59,20 @@ export const sortAuthFiles = (files: AuthFileItem[], mode: AuthFilesSortMode): A
   const copy = [...files];
   if (mode === 'default') {
     copy.sort((a, b) => {
-      const providerA = normalizeProviderKey(String(a.provider ?? a.type ?? 'unknown'));
-      const providerB = normalizeProviderKey(String(b.provider ?? b.type ?? 'unknown'));
-      const providerCompare = providerA.localeCompare(providerB);
+      const providerA = getAuthFileProviderKey(a) || 'unknown';
+      const providerB = getAuthFileProviderKey(b) || 'unknown';
+      const providerCompare = compareAscii(providerA, providerB);
       if (providerCompare !== 0) return providerCompare;
-      return a.name.localeCompare(b.name);
+      return compareAscii(getAuthFileOperationName(a), getAuthFileOperationName(b));
     });
   } else if (mode === 'az') {
     // 按卡片主行排（有账号时即 email），所见即所排；同值用文件名决胜。
     // 装饰一次，避免在比较器里重复派生。
     const keys = new Map(copy.map((file) => [file, deriveAuthFileIdentity(file).primary]));
     copy.sort(
-      (a, b) => (keys.get(a) ?? '').localeCompare(keys.get(b) ?? '') || a.name.localeCompare(b.name)
+      (a, b) =>
+        (keys.get(a) ?? '').localeCompare(keys.get(b) ?? '') ||
+        getAuthFileOperationName(a).localeCompare(getAuthFileOperationName(b))
     );
   } else if (mode === 'priority') {
     copy.sort((a, b) => {

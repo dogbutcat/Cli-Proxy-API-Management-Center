@@ -183,4 +183,63 @@ describe('deriveAuthFileIdentity', () => {
       fullName: '',
     });
   });
+
+  test('uses OpenCode safe identity instead of unsafe account material', () => {
+    const identity = deriveAuthFileIdentity(
+      authFile({
+        name: 'sk-live-secret.json',
+        type: 'opencodeGo',
+        account: 'sk-live-secret',
+        cookie: 'session=secret',
+        apiKey: 'oc-secret',
+        opencodeGoIdentity: {
+          provider: 'opencode-go',
+          workspace: 'workspace-a',
+          entry: 'auth-entry-a',
+          protocol: 'anthropic',
+          label: 'Team workspace',
+          identityKey: 'workspace:workspace-a',
+          status: 'runtime-only',
+          diagnostic: 'runtime-only',
+          diagnostics: [],
+          keySource: 'workspace',
+          labelSource: 'label',
+          ignoredUnsafeFields: [],
+          alias: '',
+          project: '',
+        },
+      })
+    );
+
+    expect(identity).toEqual({
+      primary: 'Team workspace',
+      kind: 'safeSource',
+      secondary: 'workspace:workspace-a · anthropic',
+      fullName: 'workspace:workspace-a · anthropic',
+    });
+    expect(JSON.stringify(identity)).not.toContain('secret');
+  });
+
+  test('keeps duplicate OpenCode workspaces disambiguated by safe secondary identity', () => {
+    const first = deriveAuthFileIdentity(
+      authFile({
+        name: 'opencode-a.json',
+        type: 'opencode-go',
+        workspace: 'workspace-a',
+        protocol: 'openai',
+      })
+    );
+    const second = deriveAuthFileIdentity(
+      authFile({
+        name: 'opencode-b.json',
+        type: 'opencode-go',
+        workspace: 'workspace-a',
+        protocol: 'anthropic',
+      })
+    );
+
+    expect(first.primary).toBe(second.primary);
+    expect(first.secondary).toBe('workspace:workspace-a · openai');
+    expect(second.secondary).toBe('workspace:workspace-a · anthropic');
+  });
 });
