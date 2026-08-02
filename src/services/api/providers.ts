@@ -72,7 +72,7 @@ const OPENAI_PROVIDER_FIELDS = [
 const MODEL_ALIAS_FIELDS = ['name', 'alias', 'priority', 'test-model', 'thinking'] as const;
 const OPENAI_MODEL_ALIAS_FIELDS = [...MODEL_ALIAS_FIELDS, 'image'] as const;
 
-const API_KEY_ENTRY_FIELDS = ['api-key', 'proxy-url', 'weight'] as const;
+const API_KEY_ENTRY_FIELDS = ['api-key', 'name', 'proxy-url', 'weight'] as const;
 
 const CLOAK_FIELDS = ['mode', 'strict-mode', 'sensitive-words', 'cache-user-id'] as const;
 
@@ -317,10 +317,12 @@ const serializeModelAliases = (models?: ModelAlias[], includeOpenAIFields = fals
         .filter(Boolean)
     : undefined;
 
-const serializeApiKeyEntry = (entry: ApiKeyEntry) => {
+const serializeApiKeyEntry = (entry: ApiKeyEntry, includeResponseFields = false) => {
   const payload: Record<string, unknown> = { 'api-key': entry.apiKey };
+  if (entry.name?.trim()) payload.name = entry.name.trim();
   if (entry.proxyUrl) payload['proxy-url'] = entry.proxyUrl;
   if (entry.weight !== undefined) payload.weight = entry.weight;
+  if (includeResponseFields && entry.authIndex) payload['auth-index'] = entry.authIndex;
   return payload;
 };
 
@@ -433,6 +435,36 @@ const serializeOpenAIProvider = (provider: OpenAIProviderConfig) => {
   return payload;
 };
 
+export const serializeClaudeMultikeyEntry = (
+  entry: OpenAIProviderConfig,
+  existingRaw?: Record<string, unknown>
+): Record<string, unknown> => {
+  const payload: Record<string, unknown> = { ...(existingRaw ?? {}) };
+  payload.name = entry.name;
+  if (entry.baseUrl) payload['base-url'] = entry.baseUrl;
+  else delete payload['base-url'];
+  payload['api-key-entries'] = Array.isArray(entry.apiKeyEntries)
+    ? entry.apiKeyEntries.map((apiKeyEntry) => serializeApiKeyEntry(apiKeyEntry, true))
+    : [];
+  if (entry.prefix?.trim()) payload.prefix = entry.prefix.trim();
+  else delete payload.prefix;
+  if (entry.disabled !== undefined) payload.disabled = entry.disabled;
+  else delete payload.disabled;
+  if (entry.disableCooling) payload['disable-cooling'] = true;
+  else delete payload['disable-cooling'];
+  const headers = serializeHeaders(entry.headers);
+  if (headers) payload.headers = headers;
+  else delete payload.headers;
+  const models = serializeModelAliases(entry.models, true);
+  if (models && models.length) payload.models = models;
+  else delete payload.models;
+  if (entry.priority !== undefined) payload.priority = entry.priority;
+  else delete payload.priority;
+  if (entry.testModel) payload['test-model'] = entry.testModel;
+  else delete payload['test-model'];
+  return payload;
+};
+
 export const providersApi = {
   createGeminiKey: (config: GeminiKeyConfig) =>
     mutateLatestProviderList('gemini-api-key', (latestItems) =>
@@ -533,6 +565,13 @@ export const providersApi = {
 
   deleteClaudeConfig: (apiKey: string, baseUrl?: string) =>
     apiClient.delete(`/claude-api-key${buildProviderDeleteQuery(apiKey, baseUrl)}`),
+
+  async getRawClaudeKeys(): Promise<unknown[]> {
+    const data = await apiClient.get('/config');
+    return getRawSectionList(data, 'claude-api-key');
+  },
+
+  putRawClaudeKeys: (entries: unknown[]) => apiClient.put('/claude-api-key', entries),
 
   async getVertexConfigs(): Promise<ProviderKeyConfig[]> {
     const data = await apiClient.get('/vertex-api-key');

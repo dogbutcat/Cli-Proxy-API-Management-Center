@@ -151,6 +151,24 @@ export function claudeToResource(config: ProviderKeyConfig, index: number): Prov
   return providerKeyToResource('claude', config, index);
 }
 
+export function claudeMultikeyToResource(
+  config: OpenAIProviderConfig & { _originalIndex?: number },
+  index: number
+): ProviderResource {
+  const resource = openaiToResource(config, config._originalIndex ?? index);
+  return {
+    ...resource,
+    id: buildId('claude', config._originalIndex ?? index, truncateForId(config.name)),
+    brand: 'claude',
+    selector: {
+      brand: 'claude',
+      apiKey: '',
+      index: config._originalIndex ?? index,
+      mode: 'multikey',
+    },
+  };
+}
+
 export function claudeApiToResource(config: ProviderKeyConfig, index: number): ProviderResource {
   const resource = providerKeyToResource('claudeApi', config, index);
   return {

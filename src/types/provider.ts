@@ -28,6 +28,7 @@ export interface ModelAlias {
 
 export interface ApiKeyEntry {
   apiKey: string;
+  name?: string;
   proxyUrl?: string;
   weight?: number;
   authIndex?: string;

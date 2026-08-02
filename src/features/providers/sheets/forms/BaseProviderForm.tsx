@@ -36,7 +36,7 @@ import { ConnectivityStatusIcon } from './ConnectivityStatusIcon';
 import { ApiKeyEntriesEditor } from './ApiKeyEntriesEditor';
 import { ModelEntriesEditor } from './ModelEntriesEditor';
 import styles from './sharedForm.module.scss';
-import { CLAUDE_API_BASE_URL } from '../../claudeApi';
+import { CLAUDE_API_BASE_URL, isClaudeMultikeyConfig } from '../../claudeApi';
 import { MAX_CREDENTIAL_WEIGHT } from '@/utils/credentialWeight';
 
 /** 模块级常量，免得每次渲染都给 picker 一个新数组引用。 */
@@ -56,6 +56,7 @@ const emptyHeader = () => ({ key: '', value: '' });
 const emptyModel = (): ModelEntryInput => ({ name: '', alias: '' });
 const emptyApiKeyEntry = (): ApiKeyEntryInput => ({
   apiKey: '',
+  name: '',
   proxyUrl: '',
   weight: undefined,
 });
@@ -111,6 +112,46 @@ function buildInitialForm(
   }
 
   const raw = resource.raw;
+  if (brand === 'claude' && isClaudeMultikeyConfig(raw)) {
+    const cfg = raw;
+    return {
+      apiKey: '',
+      name: cfg.name ?? '',
+      baseUrl: cfg.baseUrl ?? '',
+      proxyUrl: '',
+      prefix: cfg.prefix ?? '',
+      disabled: cfg.disabled === true,
+      disableCooling: cfg.disableCooling === true,
+      priority: cfg.priority,
+      models: cfg.models?.length
+        ? cfg.models.map((m) => ({
+            name: m.name,
+            alias: m.alias ?? '',
+            priority: m.priority,
+            testModel: m.testModel,
+            image: m.image === true,
+            thinkingJson: formatJsonObject(m.thinking),
+            thinkingLevels: readThinkingLevels(m.thinking),
+          }))
+        : [emptyModel()],
+      headers: cfg.headers
+        ? Object.entries(cfg.headers).map(([k, v]) => ({ key: k, value: String(v) }))
+        : [emptyHeader()],
+      excludedModelsText: '',
+      testModel: cfg.testModel ?? '',
+      apiKeyEntries: cfg.apiKeyEntries?.length
+        ? cfg.apiKeyEntries.map((entry) => ({
+            apiKey: '',
+            existingApiKey: entry.apiKey,
+            name: entry.name ?? '',
+            proxyUrl: entry.proxyUrl ?? '',
+            weight: entry.weight,
+            authIndex: entry.authIndex,
+          }))
+        : [emptyApiKeyEntry()],
+    };
+  }
+
   if (brand === 'openaiCompatibility') {
     const cfg = raw as OpenAIProviderConfig;
     return {
@@ -142,6 +183,7 @@ function buildInitialForm(
         ? cfg.apiKeyEntries.map((entry) => ({
             apiKey: '',
             existingApiKey: entry.apiKey,
+            name: entry.name ?? '',
             proxyUrl: entry.proxyUrl ?? '',
             weight: entry.weight,
             authIndex: entry.authIndex,
@@ -217,7 +259,17 @@ export function BaseProviderForm({
   onDirtyChange,
 }: BaseProviderFormProps) {
   const { t } = useTranslation();
-  const descriptor = PROVIDER_DESCRIPTORS[brand];
+  const isClaudeMultikey =
+    brand === 'claude' && resource !== null && isClaudeMultikeyConfig(resource.raw);
+  const descriptor = isClaudeMultikey
+    ? {
+        ...PROVIDER_DESCRIPTORS[brand],
+        supportsName: true,
+        supportsApiKey: false,
+        supportsProxyUrl: false,
+        supportsApiKeyEntries: true,
+      }
+    : PROVIDER_DESCRIPTORS[brand];
   const fid = useId();
   const [form, setForm] = useState<ProviderEntryFormInput>(() =>
     buildInitialForm(brand, resource, mode)
@@ -400,10 +452,10 @@ export function BaseProviderForm({
       return t('providersPage.form.validation.baseUrlRequired');
     }
     const weights = [
-      ...(brand === 'openaiCompatibility'
+      ...(brand === 'openaiCompatibility' || isClaudeMultikey
         ? (form.apiKeyEntries ?? []).map((entry) => entry.weight)
         : []),
-      ...(brand !== 'openaiCompatibility' ? [form.weight] : []),
+      ...(brand !== 'openaiCompatibility' && !isClaudeMultikey ? [form.weight] : []),
     ];
     if (weights.some((weight) => weight !== undefined && !Number.isSafeInteger(weight))) {
       return t('providersPage.form.validation.weightInteger');
@@ -648,7 +700,7 @@ export function BaseProviderForm({
           </div>
         ) : null}
 
-        {brand !== 'openaiCompatibility' ? (
+        {brand !== 'openaiCompatibility' && !isClaudeMultikey ? (
           <div className={styles.field}>
             <label className={styles.label} htmlFor={`${fid}-weight`}>
               {t('providersPage.form.weight')}

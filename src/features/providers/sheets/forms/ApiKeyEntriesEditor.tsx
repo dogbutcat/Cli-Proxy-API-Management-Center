@@ -137,6 +137,11 @@ export function ApiKeyEntriesEditor({
                       {t('providersPage.form.proxyBadge')}
                     </span>
                   ) : null}
+                  {(entry.name ?? '').trim() ? (
+                    <span className={styles.entryBadge} title={entry.name ?? ''}>
+                      {entry.name}
+                    </span>
+                  ) : null}
                   <span className={styles.entrySummaryKey}>
                     {summaryKey ? maskApiKey(summaryKey) : t('providersPage.status.notConfigured')}
                   </span>
@@ -227,6 +232,16 @@ export function ApiKeyEntriesEditor({
                       {showPasswords.has(idx) ? <IconEyeOff size={16} /> : <IconEye size={16} />}
                     </button>
                   </div>
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.label}>{t('providersPage.form.name')}</label>
+                  <input
+                    className={styles.input}
+                    value={entry.name ?? ''}
+                    onChange={(e) => onUpdate(idx, { name: e.target.value })}
+                    disabled={mutating}
+                    placeholder="default"
+                  />
                 </div>
                 <div className={styles.field}>
                   <label className={styles.label}>{t('providersPage.form.proxyUrl')}</label>

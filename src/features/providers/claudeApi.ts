@@ -1,4 +1,4 @@
-import type { ProviderKeyConfig } from '@/types';
+import type { OpenAIProviderConfig, ProviderKeyConfig } from '@/types';
 
 export const CLAUDE_API_DISPLAY_NAME = 'Claudeapi.com';
 export const CLAUDE_API_BASE_URL = 'https://gw.apito.ai';
@@ -12,12 +12,27 @@ const normalizeBaseUrl = (value: string | undefined | null): string =>
     .toLowerCase()
     .replace(/\/+$/, '');
 
-export const isClaudeApiProvider = (
-  config: ProviderKeyConfig | undefined | null
-): boolean => {
+export const isClaudeApiProvider = (config: ProviderKeyConfig | undefined | null): boolean => {
   if (!config) return false;
   const baseUrl = normalizeBaseUrl(config.baseUrl);
   return [CLAUDE_API_BASE_URL, CLAUDE_API_LEGACY_BASE_URL].some(
     (candidate) => baseUrl === normalizeBaseUrl(candidate)
   );
 };
+
+export const isClaudeMultikeyRaw = (raw: unknown): boolean => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  const record = raw as Record<string, unknown>;
+  return Array.isArray(record['api-key-entries']) && record['api-key'] === undefined;
+};
+
+export const isClaudeMultikeyConfig = (
+  config: unknown
+): config is OpenAIProviderConfig & { _originalIndex?: number } =>
+  Boolean(
+    config &&
+    typeof config === 'object' &&
+    !Array.isArray(config) &&
+    typeof (config as { name?: unknown }).name === 'string' &&
+    Array.isArray((config as { apiKeyEntries?: unknown }).apiKeyEntries)
+  );

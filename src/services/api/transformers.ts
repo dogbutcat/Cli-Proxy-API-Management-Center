@@ -178,11 +178,13 @@ const normalizeApiKeyEntry = (entry: unknown): ApiKeyEntry | null => {
   const proxyUrl = record?.['proxy-url'];
   const weight = readCredentialWeight(record?.weight);
   const authIndex = normalizeAuthIndex(record?.['auth-index']);
+  const name = record?.name;
 
   const result: ApiKeyEntry = {
     apiKey: trimmed,
     proxyUrl: proxyUrl ? String(proxyUrl) : undefined,
   };
+  if (typeof name === 'string' && name.trim()) result.name = name.trim();
   if (weight !== undefined) result.weight = weight;
   if (authIndex) result.authIndex = authIndex;
   const identity = normalizeProviderIdentity(record);
@@ -190,6 +192,59 @@ const normalizeApiKeyEntry = (entry: unknown): ApiKeyEntry | null => {
     result.identity = identity.identity;
     result.opencodeGoIdentity = identity.opencodeGoIdentity;
   }
+  return result;
+};
+
+const isClaudeMultikeyRaw = (raw: unknown): boolean =>
+  isRecord(raw) && Array.isArray(raw['api-key-entries']) && raw['api-key'] === undefined;
+
+const normalizeClaudeMultikeyConfig = (
+  provider: unknown,
+  sourceIndex?: number
+): (OpenAIProviderConfig & { _originalIndex?: number }) | null => {
+  if (!isRecord(provider)) return null;
+  const name = provider.name;
+  if (typeof name !== 'string' || !name.trim()) return null;
+
+  const apiKeyEntries = Array.isArray(provider['api-key-entries'])
+    ? (provider['api-key-entries']
+        .map((entry) => normalizeApiKeyEntry(entry))
+        .filter(Boolean) as ApiKeyEntry[])
+    : [];
+
+  const headers = normalizeHeaders(provider.headers);
+  const models = normalizeModelAliases(provider.models);
+  const priority = provider.priority;
+  const testModel = provider['test-model'];
+  const baseUrl = provider['base-url'];
+
+  const result: OpenAIProviderConfig & { _originalIndex?: number } = {
+    name: name.trim(),
+    baseUrl: baseUrl === undefined || baseUrl === null ? '' : String(baseUrl),
+    apiKeyEntries,
+  };
+
+  const disabled = normalizeBoolean(provider.disabled);
+  if (disabled !== undefined) result.disabled = disabled;
+  const disableCooling = normalizeBoolean(provider['disable-cooling']);
+  if (disableCooling !== undefined) result.disableCooling = disableCooling;
+  const prefix = normalizePrefix(provider.prefix);
+  if (prefix) result.prefix = prefix;
+  if (headers) result.headers = headers;
+  if (models.length) result.models = models;
+  if (priority !== undefined && priority !== null && String(priority).trim() !== '') {
+    const parsed = Number(priority);
+    if (Number.isFinite(parsed)) result.priority = parsed;
+  }
+  if (testModel) result.testModel = String(testModel);
+  const authIndex = normalizeAuthIndex(provider['auth-index']);
+  if (authIndex) result.authIndex = authIndex;
+  const identity = normalizeProviderIdentity(provider, result.name);
+  if (identity) {
+    result.identity = identity.identity;
+    result.opencodeGoIdentity = identity.opencodeGoIdentity;
+  }
+  if (sourceIndex !== undefined) result._originalIndex = sourceIndex;
   return result;
 };
 
@@ -463,9 +518,19 @@ export const normalizeConfigResponse = (raw: unknown): Config => {
 
   const claudeList = raw['claude-api-key'];
   if (Array.isArray(claudeList)) {
-    config.claudeApiKeys = claudeList
-      .map((item) => normalizeProviderKeyConfig(item))
-      .filter(Boolean) as ProviderKeyConfig[];
+    const traditional: ProviderKeyConfig[] = [];
+    const multikey: (OpenAIProviderConfig & { _originalIndex?: number })[] = [];
+    claudeList.forEach((item, index) => {
+      if (isClaudeMultikeyRaw(item)) {
+        const normalized = normalizeClaudeMultikeyConfig(item, index);
+        if (normalized) multikey.push(normalized);
+        return;
+      }
+      const normalized = normalizeProviderKeyConfig(item);
+      if (normalized) traditional.push(normalized);
+    });
+    config.claudeApiKeys = traditional;
+    if (multikey.length) config.claudeMultikeyEntries = multikey;
   }
 
   const vertexList = raw['vertex-api-key'];
@@ -501,6 +566,7 @@ export {
   normalizeModelAliases,
   normalizeOpenAIProvider,
   normalizeProviderKeyConfig,
+  normalizeClaudeMultikeyConfig,
   normalizeHeaders,
   normalizeExcludedModels,
 };

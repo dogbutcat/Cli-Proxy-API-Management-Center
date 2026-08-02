@@ -35,6 +35,7 @@ export interface Config {
   codexApiKeys?: ProviderKeyConfig[];
   xaiApiKeys?: ProviderKeyConfig[];
   claudeApiKeys?: ProviderKeyConfig[];
+  claudeMultikeyEntries?: (OpenAIProviderConfig & { _originalIndex?: number })[];
   vertexApiKeys?: ProviderKeyConfig[];
   openaiCompatibility?: OpenAIProviderConfig[];
   openCodeGo?: OpenCodeGoConfig;

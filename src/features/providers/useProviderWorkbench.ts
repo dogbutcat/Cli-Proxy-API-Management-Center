@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { providersApi } from '@/services/api';
+import { providersApi, serializeClaudeMultikeyEntry } from '@/services/api';
 import { getErrorMessage } from '@/utils/helpers';
 import { useAuthStore, useConfigStore } from '@/stores';
 import {
@@ -20,6 +20,7 @@ import type {
 import {
   apiKeyFunToResource,
   claudeApiToResource,
+  claudeMultikeyToResource,
   claudeToResource,
   code0ToResource,
   codexToResource,
@@ -55,7 +56,7 @@ import {
   isApiKeyFunCodexProvider,
   isApiKeyFunOpenAIProvider,
 } from './sponsor';
-import { CLAUDE_API_BASE_URL, isClaudeApiProvider } from './claudeApi';
+import { CLAUDE_API_BASE_URL, isClaudeApiProvider, isClaudeMultikeyRaw } from './claudeApi';
 import {
   buildCode0Raw,
   isCode0ClaudeProvider,
@@ -257,6 +258,7 @@ const buildOpenAIConfig = (
           entry.existingApiKey?.trim() || existing?.apiKeyEntries?.[index]?.apiKey?.trim() || '';
         return {
           apiKey: entry.apiKey.trim() || fallbackApiKey,
+          name: entry.name?.trim() || undefined,
           proxyUrl: entry.proxyUrl.trim() || undefined,
           weight: entry.weight,
           authIndex: entry.authIndex?.trim() || undefined,
@@ -651,6 +653,12 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
             },
             []
           );
+          resources = [
+            ...resources,
+            ...(config.claudeMultikeyEntries ?? []).map((item, index) =>
+              claudeMultikeyToResource(item, index)
+            ),
+          ];
           break;
         case 'claudeApi':
           resources = (config.claudeApiKeys ?? []).reduce<ProviderResource[]>(
@@ -740,6 +748,43 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
   }, [config, fetchedAt]);
 
   /* ------------------- mutations ------------------- */
+
+  const persistMergedClaudeMultikeyConfigs = useCallback(
+    async (multikeyList: (OpenAIProviderConfig & { _originalIndex?: number })[]) => {
+      const rawConfig = await providersApi.getRawClaudeKeys();
+      const byOriginalIndex = new Map<number, OpenAIProviderConfig>();
+      const newEntries: OpenAIProviderConfig[] = [];
+
+      multikeyList.forEach((entry) => {
+        if (entry._originalIndex !== undefined) {
+          byOriginalIndex.set(entry._originalIndex, entry);
+        } else {
+          newEntries.push(entry);
+        }
+      });
+
+      const merged = rawConfig
+        .map((raw, index) => {
+          if (!isClaudeMultikeyRaw(raw)) return raw;
+          const next = byOriginalIndex.get(index);
+          if (!next) return null;
+          return serializeClaudeMultikeyEntry(
+            next,
+            raw && typeof raw === 'object' && !Array.isArray(raw)
+              ? (raw as Record<string, unknown>)
+              : undefined
+          );
+        })
+        .filter((entry) => entry !== null);
+
+      newEntries.forEach((entry) => {
+        merged.push(serializeClaudeMultikeyEntry(entry));
+      });
+
+      await providersApi.putRawClaudeKeys(merged);
+    },
+    []
+  );
 
   const persistSponsorConfig = useCallback(
     async (brand: SponsorProviderBrand, input: ProviderEntryFormInput) => {
@@ -943,12 +988,24 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
             buildProviderKeyConfig('xai', input, existing) as ProviderKeyConfig
           );
         } else if (brand === 'claude' && selector.brand === 'claude') {
-          const existing = resource.raw as ProviderKeyConfig;
-          await providersApi.updateClaudeConfig(
-            selector.apiKey,
-            selector.baseUrl,
-            buildProviderKeyConfig('claude', input, existing) as ProviderKeyConfig
-          );
+          if (selector.mode === 'multikey') {
+            const existing = resource.raw as OpenAIProviderConfig & { _originalIndex?: number };
+            const next = buildOpenAIConfig(input, existing) as OpenAIProviderConfig & {
+              _originalIndex?: number;
+            };
+            await persistMergedClaudeMultikeyConfigs(
+              (config?.claudeMultikeyEntries ?? []).map((item) =>
+                item._originalIndex === existing._originalIndex ? next : item
+              )
+            );
+          } else {
+            const existing = resource.raw as ProviderKeyConfig;
+            await providersApi.updateClaudeConfig(
+              selector.apiKey,
+              selector.baseUrl,
+              buildProviderKeyConfig('claude', input, existing) as ProviderKeyConfig
+            );
+          }
         } else if (brand === 'claudeApi' && selector.brand === 'claudeApi') {
           await providersApi.updateClaudeConfig(
             selector.apiKey,
@@ -991,7 +1048,13 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
         setMutating(false);
       }
     },
-    [config?.openCodeGo, persistSponsorConfig, refetch]
+    [
+      config?.claudeMultikeyEntries,
+      config?.openCodeGo,
+      persistMergedClaudeMultikeyConfigs,
+      persistSponsorConfig,
+      refetch,
+    ]
   );
 
   const deleteProvider = useCallback(
@@ -1016,9 +1079,16 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
           const next = (config?.xaiApiKeys ?? []).filter((_, i) => i !== sel.index);
           updateConfigValue('xai-api-key', next);
         } else if (sel.brand === 'claude') {
-          await providersApi.deleteClaudeConfig(sel.apiKey, sel.baseUrl);
-          const next = (config?.claudeApiKeys ?? []).filter((_, i) => i !== sel.index);
-          updateConfigValue('claude-api-key', next);
+          if (sel.mode === 'multikey') {
+            const next = (config?.claudeMultikeyEntries ?? []).filter(
+              (item) => item._originalIndex !== sel.index
+            );
+            await persistMergedClaudeMultikeyConfigs(next);
+          } else {
+            await providersApi.deleteClaudeConfig(sel.apiKey, sel.baseUrl);
+            const next = (config?.claudeApiKeys ?? []).filter((_, i) => i !== sel.index);
+            updateConfigValue('claude-api-key', next);
+          }
         } else if (sel.brand === 'claudeApi') {
           await providersApi.deleteClaudeConfig(sel.apiKey, sel.baseUrl);
           const next = (config?.claudeApiKeys ?? []).filter((_, i) => i !== sel.index);
@@ -1069,7 +1139,7 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
         setMutating(false);
       }
     },
-    [config, refetch, updateConfigValue]
+    [config, persistMergedClaudeMultikeyConfigs, refetch, updateConfigValue]
   );
 
   const toggleDisabled = useCallback(
@@ -1099,7 +1169,7 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
         } else if (
           (brand === 'codex' && selector.brand === 'codex') ||
           (brand === 'xai' && selector.brand === 'xai') ||
-          (brand === 'claude' && selector.brand === 'claude') ||
+          (brand === 'claude' && selector.brand === 'claude' && selector.mode !== 'multikey') ||
           (brand === 'claudeApi' && selector.brand === 'claudeApi') ||
           (brand === 'vertex' && selector.brand === 'vertex')
         ) {
@@ -1119,6 +1189,17 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
           }
         } else if (brand === 'openaiCompatibility' && selector.brand === 'openaiCompatibility') {
           await providersApi.updateOpenAIProviderDisabled(selector.index, disabled);
+        } else if (
+          brand === 'claude' &&
+          selector.brand === 'claude' &&
+          selector.mode === 'multikey'
+        ) {
+          const current = resource.raw as OpenAIProviderConfig & { _originalIndex?: number };
+          await persistMergedClaudeMultikeyConfigs(
+            (config?.claudeMultikeyEntries ?? []).map((item) =>
+              item._originalIndex === current._originalIndex ? { ...item, disabled } : item
+            )
+          );
         } else if (brand === 'opencodeGo' && selector.brand === 'opencodeGo') {
           const current = resource.raw as OpenCodeGoKeyGroup;
           const next = withOpenCodeGoGroup(
@@ -1146,7 +1227,7 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
         setMutating(false);
       }
     },
-    [config?.openCodeGo, refetch]
+    [config?.claudeMultikeyEntries, config?.openCodeGo, persistMergedClaudeMultikeyConfigs, refetch]
   );
 
   return {

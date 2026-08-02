@@ -42,7 +42,13 @@ export type ProviderResourceSelector =
   | { brand: 'interactions'; apiKey: string; baseUrl?: string; index: number }
   | { brand: 'codex'; apiKey: string; baseUrl?: string; index: number }
   | { brand: 'xai'; apiKey: string; baseUrl?: string; index: number }
-  | { brand: 'claude'; apiKey: string; baseUrl?: string; index: number }
+  | {
+      brand: 'claude';
+      apiKey: string;
+      baseUrl?: string;
+      index: number;
+      mode?: 'traditional' | 'multikey';
+    }
   | { brand: 'claudeApi'; apiKey: string; baseUrl?: string; index: number }
   | { brand: 'vertex'; apiKey: string; baseUrl?: string; index: number }
   | { brand: 'openaiCompatibility'; name: string; index: number }
@@ -221,6 +227,7 @@ export interface OpenCodeGoKeyGroupInput {
 export interface ApiKeyEntryInput {
   apiKey: string;
   existingApiKey?: string;
+  name?: string;
   proxyUrl: string;
   weight?: number;
   authIndex?: string;
