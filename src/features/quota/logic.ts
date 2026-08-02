@@ -7,6 +7,7 @@ import type { AuthFileItem } from '@/types';
 import { ANTIGRAVITY_CONFIG } from './providers/antigravity/data';
 import { CLAUDE_CONFIG } from './providers/claude/data';
 import { CODEX_CONFIG } from './providers/codex/data';
+import { OPENCODE_GO_CONFIG } from './providers/opencodeGo/data';
 import { KIMI_CONFIG } from './providers/kimi/data';
 import { XAI_CONFIG } from './providers/xai/data';
 import type { QuotaProviderType } from './providers/types';
@@ -21,6 +22,7 @@ const QUOTA_FILTER_MAP: Record<QuotaProviderType, (file: AuthFileItem) => boolea
   antigravity: ANTIGRAVITY_CONFIG.filterFn,
   claude: CLAUDE_CONFIG.filterFn,
   codex: CODEX_CONFIG.filterFn,
+  'opencode-go': OPENCODE_GO_CONFIG.filterFn,
   kimi: KIMI_CONFIG.filterFn,
   xai: XAI_CONFIG.filterFn,
 };
@@ -59,8 +61,12 @@ export function buildQuotaFileEntry(file: AuthFileItem, type: QuotaProviderType)
   };
 }
 
-export const resolveQuotaProviderType = (file: AuthFileItem): QuotaProviderType | null =>
-  QUOTA_TAB_ORDER.find((type) => QUOTA_FILTER_MAP[type](file)) ?? null;
+export const resolveQuotaProviderType = (file: AuthFileItem): QuotaProviderType | null => {
+  if (hasOpenCodeQuotaIdentity(file) && OPENCODE_GO_CONFIG.filterFn(file)) {
+    return 'opencode-go';
+  }
+  return QUOTA_TAB_ORDER.find((type) => QUOTA_FILTER_MAP[type](file)) ?? null;
+};
 
 /**
  * 把文件列表归类为额度条目：不支持额度或已停用的文件被过滤，

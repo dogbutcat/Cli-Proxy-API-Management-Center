@@ -474,6 +474,23 @@
     "plan_pro": "Pro 20x",
     "plan_prolite": "Pro 5x"
   },
+  "opencode_go_quota": {
+    "title": "OpenCode Go 配額",
+    "empty_title": "暫無 OpenCode Go 工作區",
+    "empty_desc": "新增 OpenCode Go key group 後即可查看工作區配額。",
+    "idle": "點擊此處重新整理配額",
+    "loading": "正在載入配額...",
+    "load_failed": "配額取得失敗：{{message}}",
+    "missing_identity": "缺少工作區身分",
+    "missing_quota": "此工作區暫無配額資料",
+    "identity_label": "工作區",
+    "diagnostic_label": "狀態",
+    "referral_title": "推薦預覽",
+    "referral_code": "推薦碼",
+    "referral_url": "連結",
+    "referral_failed": "推薦預覽不可用：{{message}}",
+    "empty_windows": "暫無配額視窗"
+  },
   "kimi_quota": {
     "title": "Kimi 配額",
     "empty_title": "暫無 Kimi 驗證",

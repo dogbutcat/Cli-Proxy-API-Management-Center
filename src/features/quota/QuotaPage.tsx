@@ -97,6 +97,7 @@ export function QuotaPage() {
   const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
   const claudeQuota = useQuotaStore((state) => state.claudeQuota);
   const codexQuota = useQuotaStore((state) => state.codexQuota);
+  const opencodeGoQuota = useQuotaStore((state) => state.opencodeGoQuota);
   const kimiQuota = useQuotaStore((state) => state.kimiQuota);
   const xaiQuota = useQuotaStore((state) => state.xaiQuota);
 
@@ -106,10 +107,11 @@ export function QuotaPage() {
         antigravity: antigravityQuota,
         claude: claudeQuota,
         codex: codexQuota,
+        'opencode-go': opencodeGoQuota,
         kimi: kimiQuota,
         xai: xaiQuota,
       }) as unknown as Record<QuotaProviderType, Record<string, QuotaCardState>>,
-    [antigravityQuota, claudeQuota, codexQuota, kimiQuota, xaiQuota]
+    [antigravityQuota, claudeQuota, codexQuota, kimiQuota, opencodeGoQuota, xaiQuota]
   );
 
   const getQuota = useCallback(

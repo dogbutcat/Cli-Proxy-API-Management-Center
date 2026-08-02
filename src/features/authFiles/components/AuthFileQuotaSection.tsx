@@ -48,6 +48,8 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
       return state.antigravityQuota[cacheKey] as QuotaCardState | undefined;
     if (quotaType === 'claude') return state.claudeQuota[cacheKey] as QuotaCardState | undefined;
     if (quotaType === 'codex') return state.codexQuota[cacheKey] as QuotaCardState | undefined;
+    if (quotaType === 'opencode-go')
+      return state.opencodeGoQuota[cacheKey] as QuotaCardState | undefined;
     if (quotaType === 'kimi') return state.kimiQuota[cacheKey] as QuotaCardState | undefined;
     if (quotaType === 'xai') return state.xaiQuota[cacheKey] as QuotaCardState | undefined;
     return assertNever(quotaType);

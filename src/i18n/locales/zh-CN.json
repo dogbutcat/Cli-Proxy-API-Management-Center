@@ -474,6 +474,23 @@
     "plan_pro": "Pro 20x",
     "plan_prolite": "Pro 5x"
   },
+  "opencode_go_quota": {
+    "title": "OpenCode Go 额度",
+    "empty_title": "暂无 OpenCode Go 工作区",
+    "empty_desc": "添加 OpenCode Go key group 后即可查看工作区额度。",
+    "idle": "点击此处刷新额度",
+    "loading": "正在加载额度...",
+    "load_failed": "额度获取失败：{{message}}",
+    "missing_identity": "缺少工作区身份",
+    "missing_quota": "该工作区暂无额度数据",
+    "identity_label": "工作区",
+    "diagnostic_label": "状态",
+    "referral_title": "推荐预览",
+    "referral_code": "推荐码",
+    "referral_url": "链接",
+    "referral_failed": "推荐预览不可用：{{message}}",
+    "empty_windows": "暂无额度窗口"
+  },
   "kimi_quota": {
     "title": "Kimi 额度",
     "empty_title": "暂无 Kimi 认证",

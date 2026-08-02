@@ -473,6 +473,23 @@
     "plan_pro": "Pro 20x",
     "plan_prolite": "Pro 5x"
   },
+  "opencode_go_quota": {
+    "title": "Квота OpenCode Go",
+    "empty_title": "Нет рабочих областей OpenCode Go",
+    "empty_desc": "Добавьте группу ключей OpenCode Go, чтобы видеть квоту рабочей области.",
+    "idle": "Нажмите здесь, чтобы обновить квоту",
+    "loading": "Загрузка квоты...",
+    "load_failed": "Не удалось загрузить квоту: {{message}}",
+    "missing_identity": "Отсутствует идентификатор рабочей области",
+    "missing_quota": "Нет данных квоты для этой рабочей области",
+    "identity_label": "Рабочая область",
+    "diagnostic_label": "Статус",
+    "referral_title": "Предпросмотр реферала",
+    "referral_code": "Код",
+    "referral_url": "URL",
+    "referral_failed": "Предпросмотр реферала недоступен: {{message}}",
+    "empty_windows": "Окна квоты не переданы"
+  },
   "kimi_quota": {
     "title": "Квота Kimi",
     "empty_title": "Файлы авторизации Kimi отсутствуют",

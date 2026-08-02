@@ -250,6 +250,18 @@ export interface CodexQuotaState {
   errorStatus?: number;
 }
 
+export interface OpenCodeGoQuotaState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  windows: CodexQuotaWindow[];
+  identity?: OpenCodeGoIdentity;
+  diagnostic?: string;
+  referralCode?: string;
+  referralUrl?: string;
+  referralError?: string;
+  error?: string;
+  errorStatus?: number;
+}
+
 // Kimi API payload types
 export interface KimiUsageDetail {
   used?: number | string;

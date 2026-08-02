@@ -474,6 +474,23 @@
     "plan_pro": "Pro 20x",
     "plan_prolite": "Pro 5x"
   },
+  "opencode_go_quota": {
+    "title": "OpenCode Go Quota",
+    "empty_title": "No OpenCode Go workspaces",
+    "empty_desc": "Add an OpenCode Go key group to view workspace quota.",
+    "idle": "Click here to refresh quota",
+    "loading": "Loading quota...",
+    "load_failed": "Failed to load quota: {{message}}",
+    "missing_identity": "Missing workspace identity",
+    "missing_quota": "No quota data for this workspace",
+    "identity_label": "Workspace",
+    "diagnostic_label": "Status",
+    "referral_title": "Referral preview",
+    "referral_code": "Code",
+    "referral_url": "URL",
+    "referral_failed": "Referral preview unavailable: {{message}}",
+    "empty_windows": "No quota windows reported"
+  },
   "kimi_quota": {
     "title": "Kimi Quota",
     "empty_title": "No Kimi Auth Files",
