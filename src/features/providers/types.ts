@@ -2,7 +2,12 @@
  * AI 提供商 Workbench 视图模型(归一化各 brand 的异构 config)
  */
 
-import type { GeminiKeyConfig, OpenAIProviderConfig, ProviderKeyConfig } from '@/types';
+import type {
+  GeminiKeyConfig,
+  OpenCodeGoKeyGroup,
+  OpenAIProviderConfig,
+  ProviderKeyConfig,
+} from '@/types';
 import type { ThinkingLevel } from './thinkingLevels';
 
 export type ProviderBrand =
@@ -14,6 +19,7 @@ export type ProviderBrand =
   | 'claudeApi'
   | 'vertex'
   | 'openaiCompatibility'
+  | 'opencodeGo'
   | 'apikeyFun'
   | 'code0'
   | 'fennoAI'
@@ -40,6 +46,7 @@ export type ProviderResourceSelector =
   | { brand: 'claudeApi'; apiKey: string; baseUrl?: string; index: number }
   | { brand: 'vertex'; apiKey: string; baseUrl?: string; index: number }
   | { brand: 'openaiCompatibility'; name: string; index: number }
+  | { brand: 'opencodeGo'; groupIndex: number; identityKey: string }
   | {
       brand: 'apikeyFun';
       openaiIndices: number[];
@@ -183,6 +190,34 @@ export interface SponsorKeyEntryInput {
   models: ModelEntryInput[];
 }
 
+export type OpenCodeGoProtocol = 'openai' | 'anthropic';
+
+export interface OpenCodeGoSubConfigInput {
+  nameSuffix: string;
+  baseUrl: string;
+  prefix: string;
+  priority?: number;
+  models: ModelEntryInput[];
+}
+
+export interface OpenCodeGoKeyEntryInput {
+  name: string;
+  apiKey: string;
+  existingApiKey?: string;
+  workspaceId: string;
+  authCookie: string;
+  proxyUrl: string;
+}
+
+export interface OpenCodeGoKeyGroupInput {
+  namePrefix: string;
+  disabled: boolean;
+  disableCooling: boolean;
+  headers: Array<{ key: string; value: string }>;
+  subConfigs: Record<OpenCodeGoProtocol, OpenCodeGoSubConfigInput>;
+  keyEntries: OpenCodeGoKeyEntryInput[];
+}
+
 export interface ApiKeyEntryInput {
   apiKey: string;
   existingApiKey?: string;
@@ -226,4 +261,6 @@ export interface ProviderEntryFormInput {
   apiKeyEntries?: ApiKeyEntryInput[];
   /** APIKEY.FUN stores one grouped key per platform protocol. */
   sponsorKeyEntries?: SponsorKeyEntryInput[];
+  opencodeGoGroup?: OpenCodeGoKeyGroup;
+  openCodeGoKeyGroups?: OpenCodeGoKeyGroupInput[];
 }

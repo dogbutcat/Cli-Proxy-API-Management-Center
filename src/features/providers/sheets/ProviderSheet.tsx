@@ -9,6 +9,7 @@ import { isMultiProtocolSponsorBrand } from '../sponsorDefinitions';
 import type { ProviderBrand, ProviderEntryFormInput, ProviderResource } from '../types';
 import type { UseProviderWorkbenchResult } from '../useProviderWorkbench';
 import { BaseProviderForm } from './forms/BaseProviderForm';
+import { OpenCodeGoGroupedForm } from './forms/OpenCodeGoGroupedForm';
 import { ResourceDetailView } from './ResourceDetailView';
 import { SponsorProviderForm } from './forms/SponsorProviderForm';
 import styles from './forms/sharedForm.module.scss';
@@ -157,6 +158,19 @@ export function ProviderSheet({
         />
       );
     }
+    if (state.brand === 'opencodeGo') {
+      return (
+        <OpenCodeGoGroupedForm
+          key={formKey}
+          resource={state.resource}
+          mode={state.mode}
+          mutating={formMutating}
+          formId={formId}
+          onSubmit={state.mode === 'create' ? handleCreate : handleUpdate}
+          onDirtyChange={handleDirtyChange}
+        />
+      );
+    }
     return (
       <BaseProviderForm
         key={formKey}
@@ -258,7 +272,9 @@ export function ProviderSheet({
                           ? '/ai-providers/infistar'
                           : state.brand === 'kimi'
                             ? '/ai-providers/kimi'
-                            : `/ai-providers/${state.brand}`,
+                            : state.brand === 'opencodeGo'
+                              ? '/opencode-go'
+                              : `/ai-providers/${state.brand}`,
       })}
       footer={footer}
       closeDisabled={submitting}

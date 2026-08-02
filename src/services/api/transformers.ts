@@ -12,7 +12,7 @@ import type { OpenCodeGoIdentity } from '@/types/opencodeGo';
 import { buildHeaderObject } from '@/utils/headers';
 import { isRecord } from '@/utils/helpers';
 import { readCredentialWeight } from '@/utils/credentialWeight';
-import { normalizeOpenCodeGoIdentity } from './opencodeGo';
+import { normalizeOpenCodeGoConfig, normalizeOpenCodeGoIdentity } from './opencodeGo';
 
 const normalizeBoolean = (value: unknown): boolean | undefined =>
   typeof value === 'boolean' ? value : undefined;
@@ -123,11 +123,28 @@ const normalizeProviderIdentity = (
   provider?: string
 ): NormalizedProviderIdentity | undefined => {
   if (!record) return undefined;
+  const hasIdentitySignal = [
+    record.aliases,
+    record.alias,
+    record.provider,
+    record.provider_id,
+    record.providerId,
+    record.entry,
+    record.entry_id,
+    record.entryId,
+    record.workspace,
+    record.workspace_id,
+    record.workspaceId,
+    record.project,
+    record.project_id,
+    record.projectId,
+  ].some((value) => value !== undefined && value !== null && String(value).trim() !== '');
+  if (!hasIdentitySignal) return undefined;
   const aliases = normalizeIdentityAliases(record.aliases ?? record.alias);
   const opencodeGoIdentity = normalizeOpenCodeGoIdentity({
     aliases,
     provider: provider ?? record.provider ?? record.provider_id ?? record.providerId ?? record.type,
-    entry: record.entry ?? record.entry_id ?? record.entryId ?? record['auth-index'],
+    entry: record.entry ?? record.entry_id ?? record.entryId,
     workspace: record.workspace ?? record.workspace_id ?? record.workspaceId,
     project: record.project ?? record.project_id ?? record.projectId,
     protocol: record.protocol,
@@ -458,6 +475,11 @@ export const normalizeConfigResponse = (raw: unknown): Config => {
     config.openaiCompatibility = openaiList
       .map((item, index) => normalizeOpenAIProvider(item, index))
       .filter(Boolean) as OpenAIProviderConfig[];
+  }
+
+  const openCodeGo = normalizeOpenCodeGoConfig(raw['opencode-go']);
+  if (openCodeGo) {
+    config.openCodeGo = openCodeGo;
   }
 
   const oauthExcluded = normalizeOauthExcluded(raw['oauth-excluded-models']);

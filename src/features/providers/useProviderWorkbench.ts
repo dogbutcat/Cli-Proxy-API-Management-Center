@@ -7,7 +7,16 @@ import {
   withDisableAllModelsRule,
   withoutDisableAllModelsRule,
 } from '@/components/providers/utils';
-import type { GeminiKeyConfig, ModelAlias, OpenAIProviderConfig, ProviderKeyConfig } from '@/types';
+import type {
+  GeminiKeyConfig,
+  ModelAlias,
+  OpenCodeGoConfig,
+  OpenCodeGoKeyEntry,
+  OpenCodeGoKeyGroup,
+  OpenCodeGoModelEntry,
+  OpenAIProviderConfig,
+  ProviderKeyConfig,
+} from '@/types';
 import {
   apiKeyFunToResource,
   claudeApiToResource,
@@ -17,6 +26,7 @@ import {
   fennoAIToResource,
   geminiToResource,
   interactionsToResource,
+  opencodeGoToResource,
   openaiToResource,
   qiniuCloudToResource,
   lmuAIToResource,
@@ -28,6 +38,8 @@ import {
 import { PROVIDER_BRAND_ORDER, REMOVED_QUICK_ACCESS_BRANDS } from './descriptors';
 import { buildThinkingFromLevels } from './thinkingLevels';
 import type {
+  OpenCodeGoKeyGroupInput,
+  OpenCodeGoProtocol,
   ProviderBrand,
   ProviderEntryFormInput,
   ProviderGroup,
@@ -266,6 +278,120 @@ const buildOpenAIConfig = (
     testModel: input.testModel?.trim() || undefined,
   };
 };
+
+const buildOpenCodeGoConfig = (
+  input: ProviderEntryFormInput,
+  existing?: OpenCodeGoKeyGroup | null
+): OpenCodeGoKeyGroup => {
+  if (input.opencodeGoGroup) return input.opencodeGoGroup;
+  const groupInput = input.openCodeGoKeyGroups?.[0];
+  if (groupInput) {
+    return openCodeGoGroupInputToConfig(groupInput, existing);
+  }
+  return (
+    existing ?? {
+      namePrefix: input.name.trim() || 'opencode-go',
+      keys: [],
+      identity: {
+        provider: 'opencode-go',
+        entry: '',
+        workspace: '',
+        project: '',
+        protocol: '',
+        alias: '',
+        label: input.name.trim() || 'opencode-go',
+        identityKey: '',
+        status: 'configured-pending',
+        diagnostic: 'configured-pending',
+        diagnostics: [],
+        keySource: 'empty',
+        labelSource: 'label',
+        ignoredUnsafeFields: [],
+      },
+    }
+  );
+};
+
+const openCodeGoProtocolToConfig = (
+  group: OpenCodeGoKeyGroupInput,
+  protocol: OpenCodeGoProtocol,
+  existing?: OpenCodeGoKeyGroup | null
+) => {
+  const subConfig = group.subConfigs[protocol];
+  const models = buildModelAliases(subConfig.models) as OpenCodeGoModelEntry[];
+  const raw = protocol === 'openai' ? existing?.openai?.raw : existing?.anthropic?.raw;
+  return {
+    ...(raw ? { raw } : {}),
+    nameSuffix: subConfig.nameSuffix.trim() || protocol,
+    baseUrl: subConfig.baseUrl.trim(),
+    prefix: subConfig.prefix.trim() || undefined,
+    priority: subConfig.priority,
+    models: models.length ? models : undefined,
+  };
+};
+
+const openCodeGoGroupInputToConfig = (
+  group: OpenCodeGoKeyGroupInput,
+  existing?: OpenCodeGoKeyGroup | null
+): OpenCodeGoKeyGroup => {
+  const headers = headersFromEntries(group.headers);
+  const keys = group.keyEntries
+    .map((entry, index): OpenCodeGoKeyEntry | null => {
+      const existingKey =
+        entry.existingApiKey?.trim() || existing?.keys[index]?.apiKey?.trim() || '';
+      const keyName = entry.name.trim() || existing?.keys[index]?.keyName?.trim() || '';
+      const apiKey = entry.apiKey.trim() || existingKey;
+      if (!keyName && !apiKey) return null;
+      return {
+        ...(existing?.keys[index]?.raw ? { raw: existing.keys[index].raw } : {}),
+        keyName,
+        apiKey,
+        workspaceId: entry.workspaceId.trim() || undefined,
+        authCookie: entry.authCookie.trim() || undefined,
+        proxyUrl: entry.proxyUrl.trim() || undefined,
+        authIndices: existing?.keys[index]?.authIndices,
+      };
+    })
+    .filter((entry): entry is OpenCodeGoKeyEntry => entry !== null);
+
+  return {
+    ...(existing ?? {}),
+    namePrefix: group.namePrefix.trim() || existing?.namePrefix || 'opencode-go',
+    disabled: group.disabled,
+    disableCooling: group.disableCooling,
+    headers: Object.keys(headers).length ? headers : undefined,
+    openai: openCodeGoProtocolToConfig(group, 'openai', existing),
+    anthropic: openCodeGoProtocolToConfig(group, 'anthropic', existing),
+    keys,
+  };
+};
+
+const withOpenCodeGoGroup = (
+  config: OpenCodeGoConfig | undefined,
+  group: OpenCodeGoKeyGroup,
+  index?: number
+): OpenCodeGoConfig => {
+  const keyGroups = [...(config?.keyGroups ?? [])];
+  if (index === undefined || index < 0 || index >= keyGroups.length) {
+    keyGroups.push(group);
+  } else {
+    keyGroups[index] = group;
+  }
+  return {
+    keyGroups,
+    quota: config?.quota,
+    raw: config?.raw,
+  };
+};
+
+const withoutOpenCodeGoGroup = (
+  config: OpenCodeGoConfig | undefined,
+  index: number
+): OpenCodeGoConfig => ({
+  keyGroups: (config?.keyGroups ?? []).filter((_, currentIndex) => currentIndex !== index),
+  quota: config?.quota,
+  raw: config?.raw,
+});
 
 const sponsorEntryApiKey = (entry: SponsorKeyEntryInput): string =>
   entry.apiKey.trim() || entry.existingApiKey?.trim() || '';
@@ -558,6 +684,11 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
             []
           );
           break;
+        case 'opencodeGo':
+          resources = (config.openCodeGo?.keyGroups ?? []).map((item, index) =>
+            opencodeGoToResource(item, index)
+          );
+          break;
         case 'apikeyFun': {
           const sponsorResource = apiKeyFunToResource(buildApiKeyFunRaw(config));
           resources = sponsorResource ? [sponsorResource] : [];
@@ -755,6 +886,9 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
           );
         } else if (brand === 'openaiCompatibility') {
           await providersApi.createOpenAIProvider(buildOpenAIConfig(input));
+        } else if (brand === 'opencodeGo') {
+          const next = withOpenCodeGoGroup(config?.openCodeGo, buildOpenCodeGoConfig(input, null));
+          await providersApi.updateOpenCodeGoConfig(next);
         } else if (
           brand === 'apikeyFun' ||
           brand === 'code0' ||
@@ -771,7 +905,7 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
         setMutating(false);
       }
     },
-    [persistSponsorConfig, refetch]
+    [config?.openCodeGo, persistSponsorConfig, refetch]
   );
 
   const updateProvider = useCallback(
@@ -834,6 +968,13 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
             selector.index,
             buildOpenAIConfig(input, resource.raw as OpenAIProviderConfig)
           );
+        } else if (brand === 'opencodeGo' && selector.brand === 'opencodeGo') {
+          const next = withOpenCodeGoGroup(
+            config?.openCodeGo,
+            buildOpenCodeGoConfig(input, resource.raw as OpenCodeGoKeyGroup),
+            selector.groupIndex
+          );
+          await providersApi.updateOpenCodeGoConfig(next);
         } else if (
           brand === 'apikeyFun' ||
           brand === 'code0' ||
@@ -850,7 +991,7 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
         setMutating(false);
       }
     },
-    [persistSponsorConfig, refetch]
+    [config?.openCodeGo, persistSponsorConfig, refetch]
   );
 
   const deleteProvider = useCallback(
@@ -892,6 +1033,9 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
             (item, index) => (item.sourceIndex ?? index) !== sel.index
           );
           updateConfigValue('openai-compatibility', next);
+        } else if (sel.brand === 'opencodeGo') {
+          const next = withoutOpenCodeGoGroup(config?.openCodeGo, sel.groupIndex);
+          await providersApi.updateOpenCodeGoConfig(next);
         } else if (
           sel.brand === 'apikeyFun' ||
           sel.brand === 'code0' ||
@@ -975,6 +1119,14 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
           }
         } else if (brand === 'openaiCompatibility' && selector.brand === 'openaiCompatibility') {
           await providersApi.updateOpenAIProviderDisabled(selector.index, disabled);
+        } else if (brand === 'opencodeGo' && selector.brand === 'opencodeGo') {
+          const current = resource.raw as OpenCodeGoKeyGroup;
+          const next = withOpenCodeGoGroup(
+            config?.openCodeGo,
+            { ...current, disabled },
+            selector.groupIndex
+          );
+          await providersApi.updateOpenCodeGoConfig(next);
         } else if (
           brand === 'apikeyFun' ||
           brand === 'code0' ||
@@ -994,7 +1146,7 @@ export function useProviderWorkbench(): UseProviderWorkbenchResult {
         setMutating(false);
       }
     },
-    [refetch]
+    [config?.openCodeGo, refetch]
   );
 
   return {

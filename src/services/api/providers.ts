@@ -4,9 +4,11 @@
 
 import { apiClient } from './client';
 import { isRecord } from '@/utils/helpers';
+import { serializeOpenCodeGoConfig } from './opencodeGo';
 import { normalizeOpenAIProvider, normalizeProviderKeyConfig } from './transformers';
 import type {
   GeminiKeyConfig,
+  OpenCodeGoConfig,
   OpenAIProviderConfig,
   ProviderKeyConfig,
   ApiKeyEntry,
@@ -592,4 +594,7 @@ export const providersApi = {
 
   deleteOpenAIProvider: (index: number) =>
     apiClient.delete(`/openai-compatibility?index=${encodeURIComponent(String(index))}`),
+
+  updateOpenCodeGoConfig: (config: OpenCodeGoConfig) =>
+    apiClient.put('/opencode-go', serializeOpenCodeGoConfig(config)),
 };

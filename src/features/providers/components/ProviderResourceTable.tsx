@@ -46,7 +46,7 @@ interface ProviderResourceTableProps {
 const columnWidths = ['180px', '220px', '72px', '138px', '174px', '176px'];
 
 const isSponsorResource = (resource: ProviderResource): boolean =>
-  isMultiProtocolSponsorBrand(resource.brand);
+  isMultiProtocolSponsorBrand(resource.brand) || resource.brand === 'opencodeGo';
 
 const resolveStatusBarData = (
   resource: ProviderResource,
@@ -105,15 +105,29 @@ export function ProviderResourceTable({
 
   const renderProtocolSummary = (r: ProviderResource) =>
     (r.flags.protocols ?? [])
-      .map((protocol) => t(`providersPage.sponsor.protocols.${protocol}`))
+      .map((protocol) =>
+        protocol === 'anthropic'
+          ? t('providersPage.sponsor.protocols.anthropic')
+          : t(`providersPage.sponsor.protocols.${protocol}`)
+      )
       .join(' / ');
 
   const renderModelsSummary = (r: ProviderResource) => {
     const items: ReactNode[] = [];
     if (isSponsorResource(r)) {
       (r.flags.protocols ?? []).forEach((protocol) => {
-        items.push(renderFlagTag(protocol, t(`providersPage.sponsor.protocols.${protocol}`)));
+        items.push(
+          renderFlagTag(
+            protocol,
+            protocol === 'anthropic'
+              ? t('providersPage.sponsor.protocols.anthropic')
+              : t(`providersPage.sponsor.protocols.${protocol}`)
+          )
+        );
       });
+      if (r.brand === 'opencodeGo') {
+        items.push(renderMetric('keys', t('providersPage.table.metrics.keys'), r.apiKeyEntryCount));
+      }
       return <div className={styles.metricsCell}>{items}</div>;
     }
     if (r.brand === 'openaiCompatibility') {

@@ -1,4 +1,5 @@
 import type { CodexQuotaWindow, CodexUsagePayload } from './quota';
+import type { ModelAlias } from './provider';
 
 export type OpenCodeGoIdentityStatus =
   'canonical' | 'legacy' | 'runtime-only' | 'configured-pending' | 'empty';
@@ -132,4 +133,50 @@ export interface OpenCodeGoReferralResponse {
   code?: string;
   url?: string;
   raw: unknown;
+}
+
+export type OpenCodeGoModelEntry = ModelAlias;
+
+export interface OpenCodeGoProtocolConfig {
+  nameSuffix?: string;
+  baseUrl: string;
+  prefix?: string;
+  priority?: number;
+  models?: OpenCodeGoModelEntry[];
+  raw?: Record<string, unknown>;
+}
+
+export interface OpenCodeGoKeyEntry {
+  keyName: string;
+  apiKey: string;
+  proxyUrl?: string;
+  workspaceId?: string;
+  authCookie?: string;
+  authIndices?: Record<string, string>;
+  raw?: Record<string, unknown>;
+}
+
+export interface OpenCodeGoKeyGroup {
+  namePrefix: string;
+  disabled?: boolean;
+  disableCooling?: boolean;
+  headers?: Record<string, string>;
+  openai?: OpenCodeGoProtocolConfig;
+  anthropic?: OpenCodeGoProtocolConfig;
+  keys: OpenCodeGoKeyEntry[];
+  authIndexes?: Record<string, Record<string, string>>;
+  identity?: OpenCodeGoIdentity;
+  raw?: Record<string, unknown>;
+}
+
+export interface OpenCodeGoQuotaConfig {
+  pollInterval?: string;
+  threshold?: number;
+  raw?: Record<string, unknown>;
+}
+
+export interface OpenCodeGoConfig {
+  keyGroups: OpenCodeGoKeyGroup[];
+  quota?: OpenCodeGoQuotaConfig;
+  raw?: Record<string, unknown>;
 }

@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Collapsible } from '@/components/ui/Collapsible';
 import { IconCheck, IconX } from '@/components/ui/icons';
 import { getProviderTotalStats, type ProviderRecentUsageMap } from '@/components/providers/utils';
-import type { OpenAIProviderConfig } from '@/types';
+import type { OpenCodeGoKeyGroup, OpenAIProviderConfig } from '@/types';
 import { maskApiKey } from '@/utils/format';
 import {
   getSponsorProviderDefinition,
@@ -26,6 +26,42 @@ const sponsorProtocolEntryKey = (protocol: string): string => {
 
 export function ResourceDetailView({ resource, usageByProvider }: ResourceDetailViewProps) {
   const { t } = useTranslation();
+
+  if (resource.brand === 'opencodeGo') {
+    const group = resource.raw as OpenCodeGoKeyGroup;
+    const identity = group.identity;
+    return (
+      <div>
+        <div className={styles.detailHeader}>
+          <div className={styles.sectionTitle}>{resource.name ?? resource.identifier}</div>
+          <p className={styles.sectionDesc}>
+            {t(
+              'providersPage.opencodeGo.detailHint',
+              'OpenCode Go groups share protocol settings across workspace keys.'
+            )}
+          </p>
+        </div>
+        <dl className={styles.dl}>
+          <div>
+            <dt className={styles.dt}>identity</dt>
+            <dd className={styles.dd}>{identity?.identityKey || identity?.label || '-'}</dd>
+          </div>
+          <div>
+            <dt className={styles.dt}>diagnostic</dt>
+            <dd className={styles.dd}>{identity?.status ?? 'empty'}</dd>
+          </div>
+          <div>
+            <dt className={styles.dt}>protocols</dt>
+            <dd className={styles.dd}>{resource.flags.protocols?.join(' / ') || '-'}</dd>
+          </div>
+          <div>
+            <dt className={styles.dt}>keys</dt>
+            <dd className={styles.dd}>{group.keys.length}</dd>
+          </div>
+        </dl>
+      </div>
+    );
+  }
 
   if (isMultiProtocolSponsorBrand(resource.brand)) {
     const definition = getSponsorProviderDefinition(resource.brand);

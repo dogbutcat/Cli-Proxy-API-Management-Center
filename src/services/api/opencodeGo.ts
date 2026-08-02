@@ -1,10 +1,16 @@
 import type {
   OpenCodeGoEntry,
+  OpenCodeGoConfig,
   OpenCodeGoIdentity,
   OpenCodeGoIdentityInput,
   OpenCodeGoIdentityKeySource,
   OpenCodeGoIdentityLabelSource,
   OpenCodeGoIdentityStatus,
+  OpenCodeGoKeyEntry,
+  OpenCodeGoKeyGroup,
+  OpenCodeGoModelEntry,
+  OpenCodeGoProtocolConfig,
+  OpenCodeGoQuotaConfig,
   OpenCodeGoQuotaEntry,
   OpenCodeGoQuotaIdentityGroup,
   OpenCodeGoQuotaResponse,
@@ -51,6 +57,13 @@ const readBoolean = (value: unknown): boolean => {
   return normalized === 'true' || normalized === '1' || normalized === 'yes';
 };
 
+const readOptionalNumber = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return undefined;
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 const readRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -58,6 +71,9 @@ const readRecord = (value: unknown): Record<string, unknown> =>
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const readRecordList = (value: unknown): Record<string, unknown>[] =>
+  Array.isArray(value) ? value.filter(isPlainRecord) : [];
 
 const readOptionalRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -234,6 +250,223 @@ export const normalizeOpenCodeGoIdentity = (
 export const normalizeOpenCodeGoSourceIdentity = (
   source: OpenCodeGoIdentityInput = {}
 ): OpenCodeGoIdentity => normalizeOpenCodeGoIdentity(source);
+
+const normalizeOpenCodeGoModelEntry = (item: unknown): OpenCodeGoModelEntry | null => {
+  if (typeof item === 'string') {
+    const name = item.trim();
+    return name ? { name } : null;
+  }
+  if (!isPlainRecord(item)) return null;
+  const name = readText(item.name);
+  if (!name) return null;
+  const alias = readText(item.alias);
+  return {
+    name,
+    ...(alias ? { alias } : {}),
+    ...(item.raw ? { raw: readRecord(item.raw) } : {}),
+  };
+};
+
+const normalizeOpenCodeGoProtocolConfig = (
+  value: unknown
+): OpenCodeGoProtocolConfig | undefined => {
+  if (!isPlainRecord(value)) return undefined;
+  const baseUrl = readText(value['base-url'] ?? value.baseUrl);
+  const models = Array.isArray(value.models)
+    ? value.models.map((item) => normalizeOpenCodeGoModelEntry(item)).filter(Boolean)
+    : [];
+  const priority = readOptionalNumber(value.priority);
+  return {
+    baseUrl,
+    nameSuffix: readText(value['name-suffix'] ?? value.nameSuffix) || undefined,
+    prefix: readText(value.prefix) || undefined,
+    priority,
+    models: models.length ? (models as OpenCodeGoModelEntry[]) : undefined,
+    raw: value,
+  };
+};
+
+const normalizeOpenCodeGoKeyEntry = (value: unknown): OpenCodeGoKeyEntry | null => {
+  if (!isPlainRecord(value)) return null;
+  const keyName = readText(value['key-name'] ?? value.keyName);
+  const apiKey = readText(value['api-key'] ?? value.apiKey);
+  if (!keyName && !apiKey) return null;
+  const authIndicesRaw = readRecord(
+    value['auth-indices'] ?? value.authIndices ?? value['auth-indexes'] ?? value.authIndexes
+  );
+  const authIndices = Object.fromEntries(
+    Object.entries(authIndicesRaw)
+      .map(([key, entryValue]) => [key.trim(), readText(entryValue)] as const)
+      .filter(([key, entryValue]) => key && entryValue)
+  );
+  return {
+    keyName,
+    apiKey,
+    proxyUrl: readText(value['proxy-url'] ?? value.proxyUrl) || undefined,
+    workspaceId: readText(value['workspace-id'] ?? value.workspaceId) || undefined,
+    authCookie: readText(value['auth-cookie'] ?? value.authCookie) || undefined,
+    authIndices: Object.keys(authIndices).length ? authIndices : undefined,
+    raw: value,
+  };
+};
+
+export const normalizeOpenCodeGoKeyGroup = (
+  value: unknown,
+  index = 0
+): OpenCodeGoKeyGroup | null => {
+  if (!isPlainRecord(value)) return null;
+  const namePrefix = readText(value['name-prefix'] ?? value.namePrefix) || `opencode-go-${index}`;
+  const keys = readRecordList(value.keys)
+    .map((item) => normalizeOpenCodeGoKeyEntry(item))
+    .filter(Boolean) as OpenCodeGoKeyEntry[];
+  const openai = normalizeOpenCodeGoProtocolConfig(value.openai);
+  const anthropic = normalizeOpenCodeGoProtocolConfig(value.anthropic);
+  const firstKey = keys[0];
+  const identity = normalizeOpenCodeGoIdentity({
+    provider: 'opencode-go',
+    entry: firstKey?.keyName || namePrefix,
+    workspace: firstKey?.workspaceId,
+    protocol: openai ? 'openai' : anthropic ? 'anthropic' : undefined,
+    label: namePrefix,
+    configured: true,
+    account: firstKey?.raw?.account,
+    apiKey: firstKey?.apiKey,
+    cookie: firstKey?.raw?.['auth-cookie'],
+  });
+
+  return {
+    namePrefix,
+    disabled: readBoolean(value.disabled),
+    disableCooling: readBoolean(value['disable-cooling'] ?? value.disableCooling),
+    headers: isPlainRecord(value.headers) ? (value.headers as Record<string, string>) : undefined,
+    openai,
+    anthropic,
+    keys,
+    authIndexes: isPlainRecord(value['auth-indexes'])
+      ? (value['auth-indexes'] as Record<string, Record<string, string>>)
+      : undefined,
+    identity,
+    raw: value,
+  };
+};
+
+const normalizeOpenCodeGoQuotaConfig = (value: unknown): OpenCodeGoQuotaConfig | undefined => {
+  if (!isPlainRecord(value)) return undefined;
+  const threshold = readOptionalNumber(value.threshold);
+  return {
+    pollInterval: readText(value['poll-interval'] ?? value.pollInterval) || undefined,
+    threshold,
+    raw: value,
+  };
+};
+
+export const normalizeOpenCodeGoConfig = (value: unknown): OpenCodeGoConfig | undefined => {
+  if (!isPlainRecord(value)) return undefined;
+  const keyGroups = readRecordList(value['key-groups'] ?? value.keyGroups)
+    .map((item, index) => normalizeOpenCodeGoKeyGroup(item, index))
+    .filter(Boolean) as OpenCodeGoKeyGroup[];
+  const quota = normalizeOpenCodeGoQuotaConfig(value.quota);
+  return {
+    keyGroups,
+    ...(quota ? { quota } : {}),
+    raw: value,
+  };
+};
+
+const serializeOpenCodeGoModels = (models?: OpenCodeGoModelEntry[]): unknown[] | undefined => {
+  if (!Array.isArray(models)) return undefined;
+  const serialized = models
+    .map((model) => {
+      const name = readText(model.name);
+      if (!name) return null;
+      const alias = readText(model.alias);
+      return alias ? { name, alias } : name;
+    })
+    .filter((model) => model !== null);
+  return serialized.length ? serialized : undefined;
+};
+
+const serializeOpenCodeGoProtocolConfig = (
+  protocol?: OpenCodeGoProtocolConfig
+): Record<string, unknown> | undefined => {
+  if (!protocol) return undefined;
+  const payload: Record<string, unknown> = { ...(protocol.raw ?? {}) };
+  payload['base-url'] = protocol.baseUrl;
+  delete payload.baseUrl;
+  if (protocol.nameSuffix) payload['name-suffix'] = protocol.nameSuffix;
+  else delete payload['name-suffix'];
+  delete payload.nameSuffix;
+  if (protocol.prefix) payload.prefix = protocol.prefix;
+  else delete payload.prefix;
+  if (protocol.priority !== undefined) payload.priority = protocol.priority;
+  else delete payload.priority;
+  const models = serializeOpenCodeGoModels(protocol.models);
+  if (models) payload.models = models;
+  else delete payload.models;
+  return readText(payload['base-url']) || models ? payload : undefined;
+};
+
+const serializeOpenCodeGoKeyEntry = (key: OpenCodeGoKeyEntry): Record<string, unknown> => {
+  const payload: Record<string, unknown> = { ...(key.raw ?? {}) };
+  payload['key-name'] = key.keyName;
+  delete payload.keyName;
+  payload['api-key'] = key.apiKey;
+  delete payload.apiKey;
+  if (key.proxyUrl) payload['proxy-url'] = key.proxyUrl;
+  else delete payload['proxy-url'];
+  delete payload.proxyUrl;
+  if (key.workspaceId) payload['workspace-id'] = key.workspaceId;
+  else delete payload['workspace-id'];
+  delete payload.workspaceId;
+  if (key.authCookie) payload['auth-cookie'] = key.authCookie;
+  else delete payload['auth-cookie'];
+  delete payload.authCookie;
+  return payload;
+};
+
+const serializeOpenCodeGoKeyGroup = (group: OpenCodeGoKeyGroup): Record<string, unknown> => {
+  const payload: Record<string, unknown> = { ...(group.raw ?? {}) };
+  payload['name-prefix'] = group.namePrefix;
+  delete payload.namePrefix;
+  if (group.disabled) payload.disabled = true;
+  else delete payload.disabled;
+  if (group.disableCooling) payload['disable-cooling'] = true;
+  else delete payload['disable-cooling'];
+  delete payload.disableCooling;
+  if (group.headers && Object.keys(group.headers).length) payload.headers = group.headers;
+  else delete payload.headers;
+  const openai = serializeOpenCodeGoProtocolConfig(group.openai);
+  if (openai) payload.openai = openai;
+  else delete payload.openai;
+  const anthropic = serializeOpenCodeGoProtocolConfig(group.anthropic);
+  if (anthropic) payload.anthropic = anthropic;
+  else delete payload.anthropic;
+  payload.keys = group.keys.map((key) => serializeOpenCodeGoKeyEntry(key));
+  return payload;
+};
+
+export const serializeOpenCodeGoConfig = (config: OpenCodeGoConfig): Record<string, unknown> => {
+  const payload: Record<string, unknown> = { ...(config.raw ?? {}) };
+  payload['key-groups'] = config.keyGroups.map((group) => serializeOpenCodeGoKeyGroup(group));
+  delete payload.keyGroups;
+  if (config.quota?.raw) {
+    payload.quota = { ...config.quota.raw };
+  } else if (config.quota) {
+    const quota: Record<string, unknown> = {};
+    if (config.quota.pollInterval) quota['poll-interval'] = config.quota.pollInterval;
+    if (config.quota.threshold !== undefined) quota.threshold = config.quota.threshold;
+    if (Object.keys(quota).length) payload.quota = quota;
+  }
+  return payload;
+};
+
+const normalizeOpenCodeGoManagementResponse = (payload: unknown): OpenCodeGoConfig => {
+  const record = readRecord(payload);
+  return (
+    normalizeOpenCodeGoConfig(record['opencode-go']) ??
+    normalizeOpenCodeGoConfig(payload) ?? { keyGroups: [] }
+  );
+};
 
 const mergeIdentityPayload = (wire: OpenCodeGoQuotaGroupWire): OpenCodeGoIdentityInput => {
   const nested =
@@ -474,5 +707,55 @@ export const opencodeGoApi = {
       url: readText(record.url) || undefined,
       raw,
     };
+  },
+
+  listKeyGroups: async (): Promise<OpenCodeGoKeyGroup[]> => {
+    const { apiClient } = await import('./client');
+    const raw = await apiClient.get<unknown>(OPENCODE_GO_ROUTE);
+    return normalizeOpenCodeGoManagementResponse(raw).keyGroups;
+  },
+
+  putKeyGroups: async (groups: OpenCodeGoKeyGroup[]): Promise<OpenCodeGoKeyGroup[]> => {
+    const { apiClient } = await import('./client');
+    const raw = await apiClient.put<unknown>(OPENCODE_GO_ROUTE, {
+      'key-groups': groups.map((group) => serializeOpenCodeGoKeyGroup(group)),
+    });
+    return normalizeOpenCodeGoManagementResponse(raw).keyGroups;
+  },
+
+  upsertKeyGroup: async (
+    group: OpenCodeGoKeyGroup,
+    selector?: { index?: number; namePrefix?: string }
+  ): Promise<OpenCodeGoKeyGroup[]> => {
+    const { apiClient } = await import('./client');
+    const raw = await apiClient.patch<unknown>(OPENCODE_GO_ROUTE, {
+      ...(selector?.index !== undefined ? { index: selector.index } : {}),
+      ...(selector?.namePrefix ? { 'name-prefix': selector.namePrefix } : {}),
+      value: serializeOpenCodeGoKeyGroup(group),
+    });
+    return normalizeOpenCodeGoManagementResponse(raw).keyGroups;
+  },
+
+  deleteKeyGroup: async (selector: { index?: number; namePrefix?: string }): Promise<void> => {
+    const { apiClient } = await import('./client');
+    const query =
+      selector.index !== undefined
+        ? `index=${encodeURIComponent(String(selector.index))}`
+        : `name-prefix=${encodeURIComponent(readText(selector.namePrefix))}`;
+    await apiClient.delete(`${OPENCODE_GO_ROUTE}?${query}`);
+  },
+
+  deleteKeyGroups: async (namePrefixes: string[]): Promise<void> => {
+    const removeSet = new Set(namePrefixes.map((name) => name.trim()).filter(Boolean));
+    const existing = await opencodeGoApi.listKeyGroups();
+    await opencodeGoApi.putKeyGroups(existing.filter((group) => !removeSet.has(group.namePrefix)));
+  },
+
+  updateKeyGroupsDisabled: async (namePrefixes: string[], disabled: boolean): Promise<void> => {
+    const targetSet = new Set(namePrefixes.map((name) => name.trim()).filter(Boolean));
+    const existing = await opencodeGoApi.listKeyGroups();
+    await opencodeGoApi.putKeyGroups(
+      existing.map((group) => (targetSet.has(group.namePrefix) ? { ...group, disabled } : group))
+    );
   },
 };

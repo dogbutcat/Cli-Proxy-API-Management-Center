@@ -1,4 +1,9 @@
-import type { GeminiKeyConfig, OpenAIProviderConfig, ProviderKeyConfig } from '@/types';
+import type {
+  GeminiKeyConfig,
+  OpenCodeGoKeyGroup,
+  OpenAIProviderConfig,
+  ProviderKeyConfig,
+} from '@/types';
 import { hasDisableAllModelsRule, stripDisableAllModelsRule } from '@/components/providers/utils';
 import { maskApiKey } from '@/utils/format';
 import {
@@ -185,6 +190,50 @@ export function openaiToResource(config: OpenAIProviderConfig, index: number): P
     flags: {},
     selector: { brand: 'openaiCompatibility', name, index: sourceIndex },
     raw: config,
+  };
+}
+
+export function opencodeGoToResource(group: OpenCodeGoKeyGroup, index: number): ProviderResource {
+  const firstKey = group.keys.find((key) => key.apiKey.trim());
+  const models = [
+    ...collectModelNames(group.openai?.models),
+    ...collectModelNames(group.anthropic?.models),
+  ];
+  const uniqueModels = Array.from(new Set(models));
+  const protocols = [group.openai ? 'openai' : null, group.anthropic ? 'anthropic' : null].filter(
+    Boolean
+  ) as string[];
+
+  return {
+    id: buildId('opencodeGo', index, group.identity?.identityKey || group.namePrefix),
+    brand: 'opencodeGo',
+    originalIndex: index,
+    name: group.namePrefix || null,
+    identifier: group.identity?.label || group.namePrefix || `#${index + 1}`,
+    apiKeyPreview: firstKey?.apiKey ? maskApiKey(firstKey.apiKey) : null,
+    apiKey: null,
+    authIndex: firstKey?.keyName ?? null,
+    baseUrl: [group.openai?.baseUrl, group.anthropic?.baseUrl].filter(Boolean).join(' / ') || null,
+    proxyUrl: firstKey?.proxyUrl ?? null,
+    prefix: [group.openai?.prefix, group.anthropic?.prefix].filter(Boolean).join(' / ') || null,
+    modelCount: uniqueModels.length,
+    models: uniqueModels,
+    priority: Math.max(
+      0,
+      normalizePriority(group.openai?.priority),
+      normalizePriority(group.anthropic?.priority)
+    ),
+    headerCount: countHeaders(group.headers),
+    excludedModelCount: 0,
+    apiKeyEntryCount: group.keys.length,
+    disabled: group.disabled === true,
+    flags: { protocols },
+    selector: {
+      brand: 'opencodeGo',
+      groupIndex: index,
+      identityKey: group.identity?.identityKey ?? group.namePrefix,
+    },
+    raw: group,
   };
 }
 
