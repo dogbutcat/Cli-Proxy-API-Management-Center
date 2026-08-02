@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { QUOTA_PAGE_SIZE } from '@/features/quota/constants';
 import {
+  buildQuotaFileEntry,
   buildTabCounts,
   classifyQuotaFiles,
   filterEntriesByTab,
@@ -45,6 +46,39 @@ describe('classifyQuotaFiles', () => {
   test('orders entries by provider tab order', () => {
     const entries = classifyQuotaFiles(FILES);
     expect(entries.map((entry) => entry.type)).toEqual(['claude', 'codex', 'codex', 'xai', 'kimi']);
+  });
+
+  test('keeps ordinary provider cache identity equal to the file name', () => {
+    const entry = buildQuotaFileEntry(file('codex-a.json', 'codex'), 'codex');
+    expect(entry.cacheKey).toBe('codex-a.json');
+    expect(entry.displayName).toBe('codex-a.json');
+  });
+
+  test('dedupes OpenCode entries by safe workspace cache identity', () => {
+    const entries = classifyQuotaFiles([
+      file('opencode-openai.json', 'codex', {
+        opencodeGoIdentity: {
+          provider: 'opencode-go',
+          workspace: 'workspace-a',
+          protocol: 'openai',
+          label: 'Team workspace',
+          labelSource: 'label',
+        },
+      }),
+      file('opencode-anthropic.json', 'codex', {
+        opencodeGoIdentity: {
+          provider: 'opencode-go',
+          workspace: 'workspace-a',
+          protocol: 'anthropic',
+          label: 'Team workspace duplicate',
+          labelSource: 'label',
+        },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].cacheKey).toBe('workspace:workspace-a');
+    expect(entries[0].displayName).toBe('Team workspace');
   });
 });
 

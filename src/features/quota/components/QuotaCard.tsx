@@ -52,7 +52,6 @@ export function QuotaCard(props: QuotaCardProps) {
   } = props;
   const { t } = useTranslation();
   const adapter = QUOTA_ADAPTERS[entry.type];
-  const file = entry.file;
 
   // 挂载时捕获一次延迟：后续 props 变 null 不影响本卡（React 19 禁渲染期读 ref）
   const [mountEntranceDelayMs] = useState<number | null>(entranceDelayMs ?? null);
@@ -97,8 +96,8 @@ export function QuotaCard(props: QuotaCardProps) {
             <span className={styles.iconFallback}>{typeLabel.slice(0, 1).toUpperCase()}</span>
           )}
         </span>
-        <span className={styles.fileName} title={file.name}>
-          {file.name}
+        <span className={styles.fileName} title={entry.displayName}>
+          {entry.displayName}
         </span>
       </header>
 

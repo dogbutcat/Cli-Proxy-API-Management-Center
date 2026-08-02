@@ -51,12 +51,6 @@ import styles from './QuotaPage.module.scss';
 const TAB_IDS: string[] = ['all', ...QUOTA_TAB_ORDER];
 const SKELETON_CARD_COUNT = 6;
 
-/**
- * 时间线泳道名 = 卡片标题，两者必须一致。卡片显示的就是文件名，所以这里是恒等。
- * 提到模块级是为了引用稳定 —— 它进了泳道 memo 的依赖数组。
- */
-const displayNameFor = (name: string) => name;
-
 export function QuotaPage() {
   const { t } = useTranslation();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
@@ -119,7 +113,7 @@ export function QuotaPage() {
   );
 
   const getQuota = useCallback(
-    (entry: QuotaFileEntry): QuotaCardState | undefined => quotaByType[entry.type][entry.file.name],
+    (entry: QuotaFileEntry): QuotaCardState | undefined => quotaByType[entry.type][entry.cacheKey],
     [quotaByType]
   );
 
@@ -171,7 +165,7 @@ export function QuotaPage() {
     let loaded = 0;
     let attention = 0;
     entries.forEach((entry) => {
-      const status = quotaByType[entry.type][entry.file.name]?.status;
+      const status = quotaByType[entry.type][entry.cacheKey]?.status;
       if (status === 'success') loaded += 1;
       else if (status === 'error') attention += 1;
     });
@@ -184,7 +178,7 @@ export function QuotaPage() {
     const survivorsByType = new Map<QuotaProviderType, Set<string>>(
       QUOTA_TAB_ORDER.map((type) => [type, new Set<string>()])
     );
-    entries.forEach((entry) => survivorsByType.get(entry.type)?.add(entry.file.name));
+    entries.forEach((entry) => survivorsByType.get(entry.type)?.add(entry.cacheKey));
 
     QUOTA_TAB_ORDER.forEach((type) => {
       const survivors = survivorsByType.get(type) ?? new Set<string>();
@@ -202,7 +196,7 @@ export function QuotaPage() {
   /* ---------- 加载与操作 ---------- */
 
   const { batchLoading, loadQuota } = useQuotaBatchLoader();
-  const { resettingQuotaName, refreshQuota, resetQuota } = useQuotaActions(disableControls);
+  const { resettingQuotaKey, refreshQuota, resetQuota } = useQuotaActions(disableControls);
 
   const pendingRefreshRef = useRef(false);
   const prevLoadingRef = useRef(loading);
@@ -318,15 +312,15 @@ export function QuotaPage() {
           <div className={styles.grid}>
             {pageItems.map((entry, index) => (
               <QuotaCard
-                key={`${entry.type}:${entry.file.name}`}
+                key={`${entry.type}:${entry.cacheKey}`}
                 entry={entry}
                 quota={getQuota(entry)}
                 resolvedTheme={resolvedTheme}
                 canRefresh={canUseActions && !entry.file.disabled}
-                resetting={resettingQuotaName === entry.file.name}
+                resetting={resettingQuotaKey === entry.cacheKey}
                 entranceDelayMs={cardEntranceDelay(index)}
-                onRefresh={() => void refreshQuota(entry.file, QUOTA_ADAPTERS[entry.type])}
-                onReset={() => resetQuota(entry.file, QUOTA_ADAPTERS[entry.type])}
+                onRefresh={() => void refreshQuota(entry, QUOTA_ADAPTERS[entry.type])}
+                onReset={() => resetQuota(entry, QUOTA_ADAPTERS[entry.type])}
               />
             ))}
           </div>
@@ -361,12 +355,7 @@ export function QuotaPage() {
         )}
 
         {/* 时间线只比较当前页凭证，避免大量凭证一次性生成无界泳道。 */}
-        <QuotaTimeline
-          entries={pageItems}
-          quotaFor={getQuota}
-          displayNameFor={displayNameFor}
-          resolvedTheme={resolvedTheme}
-        />
+        <QuotaTimeline entries={pageItems} quotaFor={getQuota} resolvedTheme={resolvedTheme} />
       </section>
     </div>
   );

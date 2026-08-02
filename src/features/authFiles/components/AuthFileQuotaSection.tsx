@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { bindQuotaClasses } from '@/features/quota/types';
 import { QUOTA_ADAPTERS, type QuotaCardState } from '@/features/quota/providers';
+import { buildQuotaFileEntry } from '@/features/quota/logic';
 import styles from './AuthFileQuota.module.scss';
 
 /** 认证文件卡片外衣：紧凑额度样式绑定成类型化契约（缺键在模块初始化即抛）。 */
@@ -39,14 +40,16 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
   const showConfirmation = useNotificationStore((state) => state.showConfirmation);
   const [resettingQuota, setResettingQuota] = useState(false);
   const adapter = QUOTA_ADAPTERS[quotaType];
+  const entry = buildQuotaFileEntry(file, quotaType);
+  const { cacheKey, displayName } = entry;
 
   const quota = useQuotaStore((state) => {
     if (quotaType === 'antigravity')
-      return state.antigravityQuota[file.name] as QuotaCardState | undefined;
-    if (quotaType === 'claude') return state.claudeQuota[file.name] as QuotaCardState | undefined;
-    if (quotaType === 'codex') return state.codexQuota[file.name] as QuotaCardState | undefined;
-    if (quotaType === 'kimi') return state.kimiQuota[file.name] as QuotaCardState | undefined;
-    if (quotaType === 'xai') return state.xaiQuota[file.name] as QuotaCardState | undefined;
+      return state.antigravityQuota[cacheKey] as QuotaCardState | undefined;
+    if (quotaType === 'claude') return state.claudeQuota[cacheKey] as QuotaCardState | undefined;
+    if (quotaType === 'codex') return state.codexQuota[cacheKey] as QuotaCardState | undefined;
+    if (quotaType === 'kimi') return state.kimiQuota[cacheKey] as QuotaCardState | undefined;
+    if (quotaType === 'xai') return state.xaiQuota[cacheKey] as QuotaCardState | undefined;
     return assertNever(quotaType);
   });
 
@@ -64,7 +67,7 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
 
     updateQuotaState((prev) => ({
       ...prev,
-      [file.name]: adapter.buildLoadingState(),
+      [cacheKey]: adapter.buildLoadingState(),
     }));
 
     try {
@@ -72,9 +75,9 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
       commitIfQuotaCacheCurrent(cacheGeneration, () => {
         updateQuotaState((prev) => ({
           ...prev,
-          [file.name]: adapter.buildSuccessState(data),
+          [cacheKey]: adapter.buildSuccessState(data),
         }));
-        showNotification(t('auth_files.quota_refresh_success', { name: file.name }), 'success');
+        showNotification(t('auth_files.quota_refresh_success', { name: displayName }), 'success');
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('common.unknown_error');
@@ -82,15 +85,25 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
       commitIfQuotaCacheCurrent(cacheGeneration, () => {
         updateQuotaState((prev) => ({
           ...prev,
-          [file.name]: adapter.buildErrorState(message, status),
+          [cacheKey]: adapter.buildErrorState(message, status),
         }));
         showNotification(
-          t('auth_files.quota_refresh_failed', { name: file.name, message }),
+          t('auth_files.quota_refresh_failed', { name: displayName, message }),
           'error'
         );
       });
     }
-  }, [adapter, disableControls, file, quota?.status, showNotification, t, updateQuotaState]);
+  }, [
+    adapter,
+    cacheKey,
+    disableControls,
+    displayName,
+    file,
+    quota?.status,
+    showNotification,
+    t,
+    updateQuotaState,
+  ]);
 
   const resetQuotaForFile = useCallback(() => {
     if (disableControls) return;
@@ -104,7 +117,7 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
 
     showConfirmation({
       title: t('codex_quota.reset_confirm_title'),
-      message: t('codex_quota.reset_confirm_message', { name: file.name }),
+      message: t('codex_quota.reset_confirm_message', { name: displayName }),
       confirmText: t('codex_quota.reset_confirm_button'),
       variant: 'primary',
       onConfirm: async () => {
@@ -115,14 +128,17 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
           commitIfQuotaCacheCurrent(cacheGeneration, () => {
             updateQuotaState((prev) => ({
               ...prev,
-              [file.name]: adapter.buildSuccessState(data),
+              [cacheKey]: adapter.buildSuccessState(data),
             }));
-            showNotification(t('codex_quota.reset_success', { name: file.name }), 'success');
+            showNotification(t('codex_quota.reset_success', { name: displayName }), 'success');
           });
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : t('common.unknown_error');
           commitIfQuotaCacheCurrent(cacheGeneration, () => {
-            showNotification(t('codex_quota.reset_failed', { name: file.name, message }), 'error');
+            showNotification(
+              t('codex_quota.reset_failed', { name: displayName, message }),
+              'error'
+            );
           });
         } finally {
           setResettingQuota(false);
@@ -131,7 +147,9 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
     });
   }, [
     adapter,
+    cacheKey,
     disableControls,
+    displayName,
     file,
     quota?.status,
     resettingQuota,

@@ -17,7 +17,7 @@ import { QUOTA_ADAPTERS, getQuotaSetter } from '../providers';
 import type { QuotaProviderType } from '../providers/types';
 
 interface BatchFetchResult {
-  name: string;
+  cacheKey: string;
   status: 'success' | 'error';
   data?: unknown;
   error?: string;
@@ -55,22 +55,22 @@ export function useQuotaBatchLoader() {
             commitIfQuotaCacheCurrent(cacheGeneration, () => {
               setQuota((prev) => {
                 const nextState = { ...prev };
-                entries.forEach(({ file }) => {
-                  nextState[file.name] = adapter.buildLoadingState();
+                entries.forEach((entry) => {
+                  nextState[entry.cacheKey] = adapter.buildLoadingState();
                 });
                 return nextState;
               });
             });
 
             const results = await Promise.all(
-              entries.map(async ({ file }): Promise<BatchFetchResult> => {
+              entries.map(async ({ file, cacheKey }): Promise<BatchFetchResult> => {
                 try {
                   const data = await adapter.fetchQuota(file, t);
-                  return { name: file.name, status: 'success', data };
+                  return { cacheKey, status: 'success', data };
                 } catch (err: unknown) {
                   const message = err instanceof Error ? err.message : t('common.unknown_error');
                   return {
-                    name: file.name,
+                    cacheKey,
                     status: 'error',
                     error: message,
                     errorStatus: getStatusFromError(err),
@@ -85,7 +85,7 @@ export function useQuotaBatchLoader() {
               setQuota((prev) => {
                 const nextState = { ...prev };
                 results.forEach((result) => {
-                  nextState[result.name] =
+                  nextState[result.cacheKey] =
                     result.status === 'success'
                       ? adapter.buildSuccessState(result.data)
                       : adapter.buildErrorState(

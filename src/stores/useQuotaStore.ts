@@ -12,19 +12,21 @@ import type {
 } from '@/types';
 
 type QuotaUpdater<T> = T | ((prev: T) => T);
+type QuotaCache<T> = Record<string, T>;
 
 interface QuotaStoreState {
   cacheGeneration: number;
-  antigravityQuota: Record<string, AntigravityQuotaState>;
-  claudeQuota: Record<string, ClaudeQuotaState>;
-  codexQuota: Record<string, CodexQuotaState>;
-  kimiQuota: Record<string, KimiQuotaState>;
-  xaiQuota: Record<string, XaiQuotaState>;
-  setAntigravityQuota: (updater: QuotaUpdater<Record<string, AntigravityQuotaState>>) => void;
-  setClaudeQuota: (updater: QuotaUpdater<Record<string, ClaudeQuotaState>>) => void;
-  setCodexQuota: (updater: QuotaUpdater<Record<string, CodexQuotaState>>) => void;
-  setKimiQuota: (updater: QuotaUpdater<Record<string, KimiQuotaState>>) => void;
-  setXaiQuota: (updater: QuotaUpdater<Record<string, XaiQuotaState>>) => void;
+  // Quota maps are keyed by QuotaFileEntry.cacheKey, not necessarily file.name.
+  antigravityQuota: QuotaCache<AntigravityQuotaState>;
+  claudeQuota: QuotaCache<ClaudeQuotaState>;
+  codexQuota: QuotaCache<CodexQuotaState>;
+  kimiQuota: QuotaCache<KimiQuotaState>;
+  xaiQuota: QuotaCache<XaiQuotaState>;
+  setAntigravityQuota: (updater: QuotaUpdater<QuotaCache<AntigravityQuotaState>>) => void;
+  setClaudeQuota: (updater: QuotaUpdater<QuotaCache<ClaudeQuotaState>>) => void;
+  setCodexQuota: (updater: QuotaUpdater<QuotaCache<CodexQuotaState>>) => void;
+  setKimiQuota: (updater: QuotaUpdater<QuotaCache<KimiQuotaState>>) => void;
+  setXaiQuota: (updater: QuotaUpdater<QuotaCache<XaiQuotaState>>) => void;
   clearQuotaCache: () => void;
 }
 

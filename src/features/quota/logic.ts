@@ -11,6 +11,11 @@ import { KIMI_CONFIG } from './providers/kimi/data';
 import { XAI_CONFIG } from './providers/xai/data';
 import type { QuotaProviderType } from './providers/types';
 import { QUOTA_TAB_ORDER, type QuotaSortMode, type QuotaTabId } from './constants';
+import {
+  deriveAuthFileIdentity,
+  deriveOpenCodeGoAuthFileIdentity,
+} from '@/features/authFiles/identity';
+import { getAuthFileProviderKey } from '@/features/authFiles/constants';
 
 const QUOTA_FILTER_MAP: Record<QuotaProviderType, (file: AuthFileItem) => boolean> = {
   antigravity: ANTIGRAVITY_CONFIG.filterFn,
@@ -23,6 +28,35 @@ const QUOTA_FILTER_MAP: Record<QuotaProviderType, (file: AuthFileItem) => boolea
 export interface QuotaFileEntry {
   file: AuthFileItem;
   type: QuotaProviderType;
+  cacheKey: string;
+  displayName: string;
+}
+
+const hasOpenCodeQuotaIdentity = (file: AuthFileItem): boolean =>
+  getAuthFileProviderKey(file) === 'opencode-go' ||
+  file.opencodeGoIdentity !== undefined ||
+  file['opencode_go_identity'] !== undefined;
+
+export function buildQuotaFileEntry(file: AuthFileItem, type: QuotaProviderType): QuotaFileEntry {
+  if (hasOpenCodeQuotaIdentity(file)) {
+    const opencodeIdentity = deriveOpenCodeGoAuthFileIdentity(file);
+    const displayIdentity = deriveAuthFileIdentity(file);
+    const cacheKey = opencodeIdentity.identityKey || file.name;
+    return {
+      file,
+      type,
+      cacheKey,
+      displayName:
+        displayIdentity.primary || displayIdentity.secondary || opencodeIdentity.label || cacheKey,
+    };
+  }
+
+  return {
+    file,
+    type,
+    cacheKey: file.name,
+    displayName: file.name,
+  };
 }
 
 export const resolveQuotaProviderType = (file: AuthFileItem): QuotaProviderType | null =>
@@ -39,7 +73,11 @@ export function classifyQuotaFiles(files: AuthFileItem[]): QuotaFileEntry[] {
   for (const file of files) {
     const type = resolveQuotaProviderType(file);
     if (!type) continue;
-    groups.get(type)?.push({ file, type });
+    const entry = buildQuotaFileEntry(file, type);
+    const group = groups.get(type);
+    if (!group) continue;
+    if (group.some((existing) => existing.cacheKey === entry.cacheKey)) continue;
+    group.push(entry);
   }
   return QUOTA_TAB_ORDER.flatMap((type) => groups.get(type) ?? []);
 }

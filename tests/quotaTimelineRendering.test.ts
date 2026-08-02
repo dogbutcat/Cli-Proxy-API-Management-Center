@@ -10,12 +10,13 @@ const entries: QuotaFileEntry[] = [
   {
     file: { name: 'weekly-only.json', type: 'claude' },
     type: 'claude',
+    cacheKey: 'weekly-only.json',
+    displayName: 'weekly-only.json',
   },
 ];
 
 const baseProps = {
   entries,
-  displayNameFor: (name: string) => name,
   resolvedTheme: 'light' as const,
   now: new Date(2026, 6, 29, 12).getTime(),
 };
@@ -99,9 +100,10 @@ describe('QuotaTimeline rendering', () => {
           {
             file: { name: 'kimi-real-response.json', type: 'kimi' },
             type: 'kimi',
+            cacheKey: 'kimi-workspace-key',
+            displayName: 'Kimi workspace',
           },
         ],
-        displayNameFor: (name: string) => name,
         resolvedTheme: 'light',
         now: new Date('2099-07-31T04:40:00Z').getTime(),
         initialMode: 'session',
@@ -109,7 +111,8 @@ describe('QuotaTimeline rendering', () => {
       })
     );
 
-    expect(markup).toContain('kimi-real-response.json');
+    expect(markup).toContain('Kimi workspace');
+    expect(markup).not.toContain('kimi-workspace-key');
     expect(markup).not.toContain('role="status"');
   });
 
