@@ -13,4 +13,5 @@ export * from './version';
 export * from './models';
 export * from './plugins';
 export * from './transformers';
+export * from './opencodeGo';
 export * from './vertex';

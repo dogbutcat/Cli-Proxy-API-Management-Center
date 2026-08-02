@@ -1,7 +1,21 @@
 /**
- * AI 提供商相关类型
- * 基于原项目 src/modules/ai-providers.js
+ * AI provider-related types.
+ * Based on the original src/modules/ai-providers.js module.
  */
+
+import type { OpenCodeGoIdentity, OpenCodeGoIdentityStatus } from './opencodeGo';
+
+export interface ProviderIdentityConfig {
+  aliases?: string[];
+  provider?: string;
+  entry?: string;
+  workspace?: string;
+  project?: string;
+  protocol?: string;
+  safeLabel?: string;
+  identityKey?: string;
+  diagnostic?: OpenCodeGoIdentityStatus;
+}
 
 export interface ModelAlias {
   name: string;
@@ -17,6 +31,8 @@ export interface ApiKeyEntry {
   proxyUrl?: string;
   weight?: number;
   authIndex?: string;
+  identity?: ProviderIdentityConfig;
+  opencodeGoIdentity?: OpenCodeGoIdentity;
 }
 
 export interface CloakConfig {
@@ -38,6 +54,8 @@ export interface GeminiKeyConfig {
   excludedModels?: string[];
   disableCooling?: boolean;
   authIndex?: string;
+  identity?: ProviderIdentityConfig;
+  opencodeGoIdentity?: OpenCodeGoIdentity;
 }
 
 export interface ProviderKeyConfig {
@@ -55,6 +73,8 @@ export interface ProviderKeyConfig {
   cloak?: CloakConfig;
   fingerprintProfile?: string;
   authIndex?: string;
+  identity?: ProviderIdentityConfig;
+  opencodeGoIdentity?: OpenCodeGoIdentity;
 }
 
 export interface OpenAIProviderConfig {
@@ -69,6 +89,8 @@ export interface OpenAIProviderConfig {
   testModel?: string;
   disableCooling?: boolean;
   authIndex?: string;
+  identity?: ProviderIdentityConfig;
+  opencodeGoIdentity?: OpenCodeGoIdentity;
   /** Original index in the backend openai-compatibility array. */
   sourceIndex?: number;
   [key: string]: unknown;

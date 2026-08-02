@@ -1,5 +1,5 @@
 /**
- * 类型定义统一导出
+ * Unified type exports.
  */
 
 export * from './common';
@@ -11,3 +11,4 @@ export * from './authFile';
 export * from './oauth';
 export * from './quota';
 export * from './plugin';
+export * from './opencodeGo';

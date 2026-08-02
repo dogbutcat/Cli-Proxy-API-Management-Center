@@ -2,6 +2,8 @@
  * Quota management types.
  */
 
+import type { OpenCodeGoIdentity } from './opencodeGo';
+
 // Theme types
 export type ThemeColors = { bg: string; text: string; border?: string };
 export type TypeColorSet = { light: ThemeColors; dark?: ThemeColors };
@@ -169,6 +171,7 @@ export interface ClaudeQuotaWindow {
 export interface ClaudeQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
   windows: ClaudeQuotaWindow[];
+  identity?: OpenCodeGoIdentity;
   extraUsage?: ClaudeExtraUsage | null;
   planType?: string | null;
   error?: string;
@@ -213,6 +216,7 @@ export interface AntigravityQuotaBucket {
 export interface AntigravityQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
   groups: AntigravityQuotaGroup[];
+  identity?: OpenCodeGoIdentity;
   subscription?: AntigravityQuotaSubscription | null;
   serverTimeOffsetMs?: number | null;
   error?: string;
@@ -235,6 +239,7 @@ export interface CodexQuotaWindow {
 export interface CodexQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
   windows: CodexQuotaWindow[];
+  identity?: OpenCodeGoIdentity;
   planType?: string | null;
   subscriptionActiveUntil?: string | number | null;
   rateLimitResetCreditsAvailableCount?: number | null;
@@ -306,6 +311,7 @@ export interface KimiQuotaRow {
 export interface KimiQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
   rows: KimiQuotaRow[];
+  identity?: OpenCodeGoIdentity;
   error?: string;
   errorStatus?: number;
 }
@@ -394,6 +400,7 @@ export interface XaiBillingSummary {
 export interface XaiQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
   billing: XaiBillingSummary | null;
+  identity?: OpenCodeGoIdentity;
   error?: string;
   errorStatus?: number;
 }

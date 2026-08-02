@@ -1,40 +1,98 @@
 /**
- * 凭证身份派生：卡片主行显示「账号」而不是文件名。
- * React-free —— 由 tests/authFileIdentity.test.ts 直接消费。
+ * Credential identity derivation: cards show the account identity instead of the file name.
+ * React-free, consumed directly by tests/authFileIdentity.test.ts.
  *
- * 背景：真实文件名形如 codex-<hash8>-<email>-<plan>.json，email 在中段，
- * 单行尾部省略保留下来的恰好是类型徽章已表达过的 provider 前缀。
+ * Real file names look like codex-<hash8>-<email>-<plan>.json. The email sits
+ * in the middle, while single-line truncation keeps the provider prefix that
+ * the type badge already communicates.
  *
- * 两条红线：
- * 1. 只读 email / projectId。后端还下发 account，但 api-key 类凭证的 account
- *    就是 API key 本身（sdk/cliproxy/auth/types.go AccountInfo），一旦进入主行、
- *    title 或搜索 haystack 就是密钥泄露；且 oauth 分支的 account 与 email 同源冗余。
- * 2. 不从文件名正则抽 email。codex 以 '-' 分隔，而 '-' 在 local part 与域名里都合法，
- *    codex-abc12345-first-last@example.com-team 无法被任何正则正确切分 —— 只会产出
- *    貌似真实的错值。需要 email 的提供商后端都有 json:"email"，无 email 的 kimi
- *    文件名里本来也没有 email 可抽。
+ * Two hard rules:
+ * 1. Read only email / projectId. Backend also sends account, but api-key
+ *    credentials put the API key itself in account (sdk/cliproxy/auth/types.go
+ *    AccountInfo). It must never enter the card title or search haystack.
+ * 2. Do not regex an email out of the file name. Codex uses '-' separators,
+ *    and '-' is legal inside both the local part and the domain.
  */
 
-import type { AuthFileItem } from '@/types';
+import { normalizeOpenCodeGoIdentity } from '../../services/api/opencodeGo';
+import type {
+  OpenCodeGoIdentity,
+  OpenCodeGoIdentityInput,
+  OpenCodeGoIdentityStatus,
+} from '../../types/opencodeGo';
+import type { AuthFileItem } from '../../types/authFile';
 
 export type AuthFileIdentityKind = 'email' | 'projectId' | 'fileName';
+export type SafeSourceIdentityDiagnostic = OpenCodeGoIdentityStatus;
+
+export type SafeSourceIdentityInput = OpenCodeGoIdentityInput;
+
+export type SafeSourceIdentity = {
+  provider: string;
+  entry: string;
+  workspace: string;
+  project: string;
+  protocol: string;
+  label: string;
+  identityKey: string;
+  diagnostic: SafeSourceIdentityDiagnostic;
+};
 
 export type AuthFileIdentity = {
-  /** 卡片主行。无任何身份线索时为空串——不伪造占位符。 */
+  /** Main card row. Empty means no identity signal, with no fake placeholder. */
   primary: string;
-  /** 主行来源。'fileName' 时主行用 mono 渲染，且副行不再重复。 */
+  /** Main row source. 'fileName' renders mono and suppresses a duplicate secondary row. */
   kind: AuthFileIdentityKind;
-  /** 卡片副行（去掉 .json 的文件名）；null = 不渲染该行。 */
+  /** Secondary card row without the .json suffix; null means render no row. */
   secondary: string | null;
-  /** 原始完整文件名，供副行 title 使用。 */
+  /** Original complete file name, used for title text. */
   fullName: string;
 };
 
-/** AuthFileItem 有索引签名，后端给非字符串也能通过类型检查——这里挡住。 */
+/** AuthFileItem has an index signature, so backend non-strings need a runtime guard. */
 const readIdentityText = (value: unknown): string =>
   typeof value === 'string' ? value.trim() : '';
 
-/** 去掉 .json 后缀（大小写不敏感），仅在剥完仍有内容时生效。 */
+export const deriveSafeSourceIdentity = (
+  input: SafeSourceIdentityInput = {}
+): SafeSourceIdentity => {
+  const identity = normalizeOpenCodeGoIdentity(input);
+
+  return {
+    provider: identity.provider,
+    entry: identity.entry,
+    workspace: identity.workspace,
+    project: identity.project,
+    protocol: identity.protocol,
+    label: identity.label,
+    identityKey: identity.identityKey,
+    diagnostic: identity.status,
+  };
+};
+
+export const deriveOpenCodeGoAuthFileIdentity = (file: AuthFileItem): OpenCodeGoIdentity =>
+  normalizeOpenCodeGoIdentity({
+    aliases: file.aliases ?? file.alias ?? file['model-alias'] ?? file.model_alias,
+    provider: file.provider ?? file.type,
+    entry: file.authIndex ?? file['auth_index'] ?? file.name,
+    workspace: file.workspace ?? file.workspaceId ?? file['workspace_id'],
+    project: file.projectId ?? file['project_id'],
+    protocol: file.protocol ?? file.protocolType ?? file['protocol_type'],
+    label: file.label ?? file.displayName ?? file['display_name'],
+    runtimeOnly: file.runtimeOnly ?? file['runtime_only'],
+    configured: file.configured ?? file.configuredPending ?? file['configured_pending'],
+    canonical: file.canonical,
+    legacy: file.legacy,
+    status: file.status,
+    source: file.source,
+    account: file.account,
+    apiKey: file.apiKey ?? file['api_key'] ?? file['api-key'],
+    cookie: file.cookie,
+    authorization: file.authorization,
+    headers: file.headers,
+  });
+
+/** Strip the .json suffix case-insensitively, but only when content remains. */
 export const stripJsonExtension = (name: string): string => {
   const trimmed = name.trim();
   if (trimmed.length <= 5) return trimmed;
@@ -42,9 +100,9 @@ export const stripJsonExtension = (name: string): string => {
 };
 
 /**
- * 身份回落链：email → projectId → 文件名（去 .json）。
- * 刻意与 provider 无关：runtime-only 虚拟凭证（name === email === 频道 ID）
- * 由副行去重守卫结构性处理，比按 provider 白名单更稳。
+ * Identity fallback chain: email -> projectId -> file name without .json.
+ * It intentionally stays provider-agnostic. Runtime-only virtual credentials
+ * where name === email === channel ID are handled by the secondary-row dedupe.
  */
 export const deriveAuthFileIdentity = (file: AuthFileItem): AuthFileIdentity => {
   const fullName = readIdentityText(file.name);

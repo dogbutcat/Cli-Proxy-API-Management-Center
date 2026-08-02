@@ -4,12 +4,15 @@ import type {
   GeminiKeyConfig,
   ModelAlias,
   OpenAIProviderConfig,
+  ProviderIdentityConfig,
   ProviderKeyConfig,
 } from '@/types';
 import type { Config } from '@/types/config';
+import type { OpenCodeGoIdentity } from '@/types/opencodeGo';
 import { buildHeaderObject } from '@/utils/headers';
 import { isRecord } from '@/utils/helpers';
 import { readCredentialWeight } from '@/utils/credentialWeight';
+import { normalizeOpenCodeGoIdentity } from './opencodeGo';
 
 const normalizeBoolean = (value: unknown): boolean | undefined =>
   typeof value === 'boolean' ? value : undefined;
@@ -102,6 +105,51 @@ const normalizeAuthIndex = (value: unknown): string | undefined => {
   return trimmed ? trimmed : undefined;
 };
 
+const normalizeIdentityAliases = (value: unknown): string[] | undefined => {
+  const rawList = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  const aliases = rawList
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+  return aliases.length ? aliases : undefined;
+};
+
+type NormalizedProviderIdentity = {
+  identity: ProviderIdentityConfig;
+  opencodeGoIdentity: OpenCodeGoIdentity;
+};
+
+const normalizeProviderIdentity = (
+  record: Record<string, unknown> | null,
+  provider?: string
+): NormalizedProviderIdentity | undefined => {
+  if (!record) return undefined;
+  const aliases = normalizeIdentityAliases(record.aliases ?? record.alias);
+  const opencodeGoIdentity = normalizeOpenCodeGoIdentity({
+    aliases,
+    provider: provider ?? record.provider ?? record.provider_id ?? record.providerId ?? record.type,
+    entry: record.entry ?? record.entry_id ?? record.entryId ?? record['auth-index'],
+    workspace: record.workspace ?? record.workspace_id ?? record.workspaceId,
+    project: record.project ?? record.project_id ?? record.projectId,
+    protocol: record.protocol,
+    label: record.label ?? record.display_name ?? record.displayName ?? record.title,
+    configured: true,
+  });
+
+  if (!opencodeGoIdentity.identityKey && !opencodeGoIdentity.label) return undefined;
+  const identity: ProviderIdentityConfig = {
+    ...(aliases ? { aliases } : {}),
+    ...(opencodeGoIdentity.provider ? { provider: opencodeGoIdentity.provider } : {}),
+    ...(opencodeGoIdentity.entry ? { entry: opencodeGoIdentity.entry } : {}),
+    ...(opencodeGoIdentity.workspace ? { workspace: opencodeGoIdentity.workspace } : {}),
+    ...(opencodeGoIdentity.project ? { project: opencodeGoIdentity.project } : {}),
+    ...(opencodeGoIdentity.protocol ? { protocol: opencodeGoIdentity.protocol } : {}),
+    safeLabel: opencodeGoIdentity.label,
+    identityKey: opencodeGoIdentity.identityKey,
+    diagnostic: opencodeGoIdentity.status,
+  };
+  return { identity, opencodeGoIdentity };
+};
+
 const normalizeApiKeyEntry = (entry: unknown): ApiKeyEntry | null => {
   if (entry === undefined || entry === null) return null;
   const record = isRecord(entry) ? entry : null;
@@ -119,6 +167,11 @@ const normalizeApiKeyEntry = (entry: unknown): ApiKeyEntry | null => {
   };
   if (weight !== undefined) result.weight = weight;
   if (authIndex) result.authIndex = authIndex;
+  const identity = normalizeProviderIdentity(record);
+  if (identity) {
+    result.identity = identity.identity;
+    result.opencodeGoIdentity = identity.opencodeGoIdentity;
+  }
   return result;
 };
 
@@ -157,6 +210,11 @@ const normalizeProviderKeyConfig = (item: unknown): ProviderKeyConfig | null => 
   if (excludedModels.length) config.excludedModels = excludedModels;
   const authIndex = normalizeAuthIndex(record?.['auth-index']);
   if (authIndex) config.authIndex = authIndex;
+  const identity = normalizeProviderIdentity(record);
+  if (identity) {
+    config.identity = identity.identity;
+    config.opencodeGoIdentity = identity.opencodeGoIdentity;
+  }
 
   const cloakRaw = record?.cloak;
   if (isRecord(cloakRaw)) {
@@ -225,6 +283,11 @@ const normalizeGeminiKeyConfig = (item: unknown): GeminiKeyConfig | null => {
   if (excludedModels.length) config.excludedModels = excludedModels;
   const authIndex = normalizeAuthIndex(record?.['auth-index']);
   if (authIndex) config.authIndex = authIndex;
+  const identity = normalizeProviderIdentity(record);
+  if (identity) {
+    config.identity = identity.identity;
+    config.opencodeGoIdentity = identity.opencodeGoIdentity;
+  }
   return config;
 };
 
@@ -266,6 +329,11 @@ const normalizeOpenAIProvider = (
   if (testModel) result.testModel = String(testModel);
   const authIndex = normalizeAuthIndex(provider['auth-index']);
   if (authIndex) result.authIndex = authIndex;
+  const identity = normalizeProviderIdentity(provider, result.name);
+  if (identity) {
+    result.identity = identity.identity;
+    result.opencodeGoIdentity = identity.opencodeGoIdentity;
+  }
   if (sourceIndex !== undefined) result.sourceIndex = sourceIndex;
   return result;
 };
