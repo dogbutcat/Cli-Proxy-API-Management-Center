@@ -30,6 +30,9 @@ import {
   IconSidebarStore,
   IconSidebarSystem,
   IconChevronDown,
+  IconSatellite,
+  IconDollarSign,
+  IconCheckCircle2,
 } from '@/components/ui/icons';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
 import {
@@ -60,6 +63,10 @@ const sidebarIcons: Record<string, ReactNode> = {
   authFiles: <IconSidebarAuthFiles size={18} />,
   oauth: <IconSidebarOauth size={18} />,
   quota: <IconSidebarQuota size={18} />,
+  monitoring: <IconSatellite size={18} />,
+  usage: <IconSidebarDashboard size={18} />,
+  prices: <IconDollarSign size={18} />,
+  actions: <IconCheckCircle2 size={18} />,
   plugins: <IconSidebarPlugins size={18} />,
   pluginStore: <IconSidebarStore size={18} />,
   config: <IconSidebarConfig size={18} />,
@@ -645,6 +652,30 @@ export function MainLayout() {
           labelKey: 'nav.quota_management',
           metaKey: 'nav_meta.quota_management',
           icon: sidebarIcons.quota,
+        },
+        {
+          path: '/monitoring',
+          labelKey: 'nav.monitoring',
+          metaKey: 'nav_meta.monitoring',
+          icon: sidebarIcons.monitoring,
+        },
+        {
+          path: '/usage',
+          labelKey: 'nav.usage_analytics',
+          metaKey: 'nav_meta.usage_analytics',
+          icon: sidebarIcons.usage,
+        },
+        {
+          path: '/prices',
+          labelKey: 'nav.model_prices',
+          metaKey: 'nav_meta.model_prices',
+          icon: sidebarIcons.prices,
+        },
+        {
+          path: '/actions',
+          labelKey: 'nav.account_actions',
+          metaKey: 'nav_meta.account_actions',
+          icon: sidebarIcons.actions,
         },
         {
           path: '/logs',

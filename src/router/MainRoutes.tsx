@@ -1,7 +1,11 @@
-import { Navigate, useRoutes, type Location } from 'react-router-dom';
+import { Navigate, useParams, useRoutes, type Location } from 'react-router-dom';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { ProvidersWorkbenchPage } from '@/features/providers/ProvidersWorkbenchPage';
 import { AuthFilesPage } from '@/features/authFiles/AuthFilesPage';
+import { MonitoringCenterPage } from '@/features/monitoring/MonitoringCenterPage';
+import { UsageAnalyticsPage } from '@/features/usage-analytics/UsageAnalyticsPage';
+import { ModelPricesPage } from '@/features/monitoring/ModelPricesPage';
+import { AccountActionCandidatesPage } from '@/features/monitoring/AccountActionCandidatesPage';
 import { AuthFilesOAuthExcludedEditPage } from '@/pages/AuthFilesOAuthExcludedEditPage';
 import { AuthFilesOAuthModelAliasEditPage } from '@/pages/AuthFilesOAuthModelAliasEditPage';
 import { OAuthPage } from '@/pages/OAuthPage';
@@ -13,6 +17,38 @@ import { ConfigPage } from '@/features/config/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
 import { SystemPage } from '@/pages/SystemPage';
 import { useAuthStore } from '@/stores';
+import type { ProviderBrand } from '@/features/providers/types';
+
+const providerDeepLinkBrandBySlug: Record<string, ProviderBrand> = {
+  kimi: 'kimi',
+  gemini: 'gemini',
+  interactions: 'interactions',
+  codex: 'codex',
+  xai: 'xai',
+  claude: 'claude',
+  vertex: 'vertex',
+  openai: 'openaiCompatibility',
+  'opencode-go': 'opencodeGo',
+  apikeyfun: 'apikeyFun',
+  claudeapi: 'claudeApi',
+  code0: 'code0',
+  fennoai: 'fennoAI',
+  qiniu: 'qiniuCloud',
+  lmuai: 'lmuAI',
+};
+
+function ProviderDeepLinkPage() {
+  const { providerSlug } = useParams();
+  const fixedBrand = providerSlug
+    ? providerDeepLinkBrandBySlug[providerSlug.toLowerCase()]
+    : undefined;
+
+  return fixedBrand ? (
+    <ProvidersWorkbenchPage fixedBrand={fixedBrand} />
+  ) : (
+    <Navigate to="/ai-providers" replace />
+  );
+}
 
 const createMainRoutes = (supportsPlugin: boolean) => [
   { path: '/', element: <DashboardPage /> },
@@ -22,12 +58,18 @@ const createMainRoutes = (supportsPlugin: boolean) => [
   { path: '/quick-start', element: <ProvidersWorkbenchPage fixedBrand="apikeyFun" /> },
   { path: '/quick-start/*', element: <Navigate to="/quick-start" replace /> },
   { path: '/ai-providers', element: <ProvidersWorkbenchPage /> },
+  { path: '/ai-providers/:providerSlug', element: <ProviderDeepLinkPage /> },
+  { path: '/opencode-go', element: <ProvidersWorkbenchPage fixedBrand="opencodeGo" /> },
   { path: '/ai-providers/*', element: <Navigate to="/ai-providers" replace /> },
   { path: '/auth-files', element: <AuthFilesPage /> },
   { path: '/auth-files/oauth-excluded', element: <AuthFilesOAuthExcludedEditPage /> },
   { path: '/auth-files/oauth-model-alias', element: <AuthFilesOAuthModelAliasEditPage /> },
   { path: '/oauth', element: <OAuthPage /> },
   { path: '/quota', element: <QuotaPage /> },
+  { path: '/monitoring', element: <MonitoringCenterPage /> },
+  { path: '/usage', element: <UsageAnalyticsPage /> },
+  { path: '/prices', element: <ModelPricesPage /> },
+  { path: '/actions', element: <AccountActionCandidatesPage /> },
   ...(supportsPlugin
     ? [
         { path: '/plugin-pages/:pluginId/:menuIndex', element: <PluginResourcePage /> },
