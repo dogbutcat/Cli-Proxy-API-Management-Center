@@ -65,6 +65,9 @@ type TransitionDirection = 'forward' | 'backward';
 
 type TransitionVariant = 'vertical' | 'ios';
 
+const buildLayerKey = (location: Location) =>
+  [location.key, location.pathname, location.search, location.hash].join('|');
+
 export function PageTransition({
   render,
   getRouteOrder,
@@ -84,15 +87,18 @@ export function PageTransition({
   const [isAnimating, setIsAnimating] = useState(false);
   const [layers, setLayers] = useState<Layer[]>(() => [
     {
-      key: location.key,
+      key: buildLayerKey(location),
       location,
       status: 'current',
     },
   ]);
+  const locationLayerKey = buildLayerKey(location);
   const currentLayer =
     layers.find((layer) => layer.status === 'current') ?? layers[layers.length - 1];
   const currentLayerKey = currentLayer?.key ?? location.key;
   const currentLayerPathname = currentLayer?.location.pathname;
+  const currentLayerSearch = currentLayer?.location.search;
+  const currentLayerHash = currentLayer?.location.hash;
 
   const resolveScrollContainer = useCallback(() => {
     if (scrollContainerRef?.current) return scrollContainerRef.current;
@@ -102,8 +108,14 @@ export function PageTransition({
 
   useLayoutEffect(() => {
     if (isAnimating) return;
-    if (location.key === currentLayerKey) return;
-    if (currentLayerPathname === location.pathname) return;
+    if (locationLayerKey === currentLayerKey) return;
+    if (
+      currentLayerPathname === location.pathname &&
+      currentLayerSearch === location.search &&
+      currentLayerHash === location.hash
+    ) {
+      return;
+    }
     const scrollContainer = resolveScrollContainer();
     const exitScrollOffset = scrollContainer?.scrollTop ?? 0;
     exitScrollOffsetRef.current = exitScrollOffset;
@@ -161,7 +173,7 @@ export function PageTransition({
         .filter((_, idx) => idx !== resolvedCurrentIndex)
         .map((layer): Layer => ({ ...layer, status: 'stacked' }));
 
-      const nextCurrent: Layer = { key: location.key, location, status: 'current' };
+      const nextCurrent: Layer = { key: locationLayerKey, location, status: 'current' };
 
       if (!previousCurrent) {
         nextLayersRef.current = [nextCurrent];
@@ -213,8 +225,11 @@ export function PageTransition({
   }, [
     isAnimating,
     location,
+    locationLayerKey,
     currentLayerKey,
     currentLayerPathname,
+    currentLayerSearch,
+    currentLayerHash,
     getRouteOrder,
     getTransitionVariant,
     resolveScrollContainer,
