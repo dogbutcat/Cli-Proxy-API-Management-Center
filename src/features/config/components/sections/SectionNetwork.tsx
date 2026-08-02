@@ -2,6 +2,7 @@ import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { getRoutingStrategyOptions } from '@/features/dashboard/utils';
 import type { VisualConfigValues } from '@/types/visualConfig';
 import { CONFIG_TAB_ICONS, SECTION_INDEX_LABELS } from '../../constants';
 import type { ConfigSectionProps } from '../../types';
@@ -127,22 +128,7 @@ export function SectionNetwork({
             >
               <Select
                 value={values.routingStrategy}
-                options={[
-                  {
-                    value: 'round-robin',
-                    label: t('config_management.visual.sections.network.strategy_round_robin'),
-                  },
-                  {
-                    value: 'weighted-round-robin',
-                    label: t(
-                      'config_management.visual.sections.network.strategy_weighted_round_robin'
-                    ),
-                  },
-                  {
-                    value: 'fill-first',
-                    label: t('config_management.visual.sections.network.strategy_fill_first'),
-                  },
-                ]}
+                options={getRoutingStrategyOptions(t, values.routingStrategy)}
                 id={`${routingStrategyLabelId}-select`}
                 disabled={disabled}
                 ariaLabelledBy={routingStrategyLabelId}

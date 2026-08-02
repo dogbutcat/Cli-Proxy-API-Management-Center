@@ -1,4 +1,5 @@
 import { TRAFFIC_BUCKET_MINUTES } from './types';
+import type { TFunction } from 'i18next';
 import type {
   DashboardSummary,
   UsageApiResult,
@@ -10,6 +11,52 @@ import type {
   DashboardUsageSliceIssue,
   DashboardUsageSliceState,
 } from './types';
+import type { CanonicalRoutingStrategy } from '@/types/config';
+import { parseConfigRoutingStrategy } from '@/utils/routingStrategy';
+
+const ROUTING_STRATEGY_LABEL_KEYS: Record<CanonicalRoutingStrategy, string> = {
+  'round-robin': 'basic_settings.routing_strategy_round_robin',
+  'fill-first': 'basic_settings.routing_strategy_fill_first',
+  'weighted-round-robin': 'basic_settings.routing_strategy_weighted_round_robin',
+  'seq-random': 'basic_settings.routing_strategy_seq_random',
+};
+
+export const ROUTING_STRATEGY_OPTION_VALUES: readonly CanonicalRoutingStrategy[] = [
+  'round-robin',
+  'weighted-round-robin',
+  'fill-first',
+  'seq-random',
+];
+
+export function formatRoutingStrategyLabel(
+  t: TFunction,
+  value: string | null | undefined
+): string {
+  const raw = value?.trim() ?? '';
+  if (!raw) return '';
+
+  const parsed = parseConfigRoutingStrategy(raw);
+  if (parsed.canonical) {
+    return t(ROUTING_STRATEGY_LABEL_KEYS[parsed.canonical]);
+  }
+
+  return t('basic_settings.routing_strategy_unknown', { value: raw });
+}
+
+export function getRoutingStrategyOptions(t: TFunction, currentValue?: string) {
+  const options = ROUTING_STRATEGY_OPTION_VALUES.map((value) => ({
+    value,
+    label: t(ROUTING_STRATEGY_LABEL_KEYS[value]),
+  }));
+
+  const raw = currentValue?.trim() ?? '';
+  if (!raw) return options;
+
+  const parsed = parseConfigRoutingStrategy(raw);
+  if (parsed.known || options.some((option) => option.value === raw)) return options;
+
+  return [...options, { value: raw, label: formatRoutingStrategyLabel(t, raw) }];
+}
 
 /** Provider display names are proper nouns, so they stay outside i18n. */
 const PROVIDER_LABELS: Record<string, string> = {

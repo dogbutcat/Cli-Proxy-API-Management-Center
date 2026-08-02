@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { parse as parseYaml } from 'yaml';
 import type { VisualConfigValues } from '../src/types/visualConfig';
 import { parseRoutingStrategy, useVisualConfig } from '../src/hooks/useVisualConfig';
+import { getRoutingStrategyOptions } from '../src/features/dashboard/utils';
 
 function renderAppliedYaml(
   currentYaml: string,
@@ -34,6 +35,29 @@ function renderAppliedYaml(
 }
 
 describe('visual config routing strategy', () => {
+  test('offers all canonical routing strategies and preserves unknown display values', () => {
+    const t = ((key: string, options?: { value?: string }) => {
+      const labels: Record<string, string> = {
+        'basic_settings.routing_strategy_round_robin': 'RR',
+        'basic_settings.routing_strategy_weighted_round_robin': 'WRR',
+        'basic_settings.routing_strategy_fill_first': 'FF',
+        'basic_settings.routing_strategy_seq_random': 'SR',
+      };
+      return labels[key] ?? `Unknown (${options?.value ?? ''})`;
+    }) as Parameters<typeof getRoutingStrategyOptions>[0];
+
+    expect(getRoutingStrategyOptions(t).map((option) => option.value)).toEqual([
+      'round-robin',
+      'weighted-round-robin',
+      'fill-first',
+      'seq-random',
+    ]);
+    expect(getRoutingStrategyOptions(t, 'custom-routing')).toContainEqual({
+      value: 'custom-routing',
+      label: 'Unknown (custom-routing)',
+    });
+  });
+
   test('recognizes backend values and safe aliases', () => {
     expect(parseRoutingStrategy('round-robin')).toBe('round-robin');
     expect(parseRoutingStrategy('roundrobin')).toBe('round-robin');

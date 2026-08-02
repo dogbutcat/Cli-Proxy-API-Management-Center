@@ -1,14 +1,30 @@
 import { describe, expect, test } from 'bun:test';
+import type { TFunction } from 'i18next';
 import { formatCompactNumber, formatPercent } from '../src/utils/format';
 import { getProviderKeyCounts } from '../src/features/dashboard/hooks/useDashboardOverview';
 import {
   axisMax,
+  formatRoutingStrategyLabel,
   getDashboardTodayStartMs,
   niceCeil,
   providerLabel,
   splitWindowMinutes,
   toneForSuccessRate,
 } from '../src/features/dashboard/utils';
+import en from '../src/i18n/locales/en.json';
+import zhCN from '../src/i18n/locales/zh-CN.json';
+import zhTW from '../src/i18n/locales/zh-TW.json';
+import ru from '../src/i18n/locales/ru.json';
+
+const routingStrategyTestLabels: Record<string, string> = {
+  'basic_settings.routing_strategy_round_robin': 'RR',
+  'basic_settings.routing_strategy_weighted_round_robin': 'WRR',
+  'basic_settings.routing_strategy_fill_first': 'FF',
+  'basic_settings.routing_strategy_seq_random': 'SR',
+};
+
+const tRouting = ((key: string, options?: { value?: string }) =>
+  routingStrategyTestLabels[key] ?? `Unknown (${options?.value ?? ''})`) as TFunction;
 
 describe('formatCompactNumber', () => {
   test('leaves values below one thousand alone', () => {
@@ -145,5 +161,40 @@ describe('providerLabel', () => {
     expect(providerLabel('somenewbrand', 'Unattributed')).toBe('Somenewbrand');
     expect(providerLabel('unknown', 'Unattributed')).toBe('Unattributed');
     expect(providerLabel('', 'Unattributed')).toBe('Unattributed');
+  });
+});
+
+describe('formatRoutingStrategyLabel', () => {
+  test('formats all canonical strategies and safe aliases', () => {
+    expect(formatRoutingStrategyLabel(tRouting, 'round-robin')).toBe('RR');
+    expect(formatRoutingStrategyLabel(tRouting, 'weighted-round-robin')).toBe('WRR');
+    expect(formatRoutingStrategyLabel(tRouting, 'fill-first')).toBe('FF');
+    expect(formatRoutingStrategyLabel(tRouting, 'seq-random')).toBe('SR');
+    expect(formatRoutingStrategyLabel(tRouting, 'sequential-random')).toBe('SR');
+  });
+
+  test('formats unknown strategies as an explicit raw diagnostic', () => {
+    expect(formatRoutingStrategyLabel(tRouting, 'custom-routing')).toBe('Unknown (custom-routing)');
+    expect(formatRoutingStrategyLabel(tRouting, '')).toBe('');
+  });
+});
+
+describe('routing strategy locale keys', () => {
+  test('exist in all supported locales touched by the routing badge', () => {
+    const requiredKeys = [
+      'routing_strategy_round_robin',
+      'routing_strategy_weighted_round_robin',
+      'routing_strategy_fill_first',
+      'routing_strategy_seq_random',
+      'routing_strategy_unknown',
+    ] as const;
+    const locales = [en, zhCN, zhTW, ru];
+
+    for (const locale of locales) {
+      for (const key of requiredKeys) {
+        expect(locale.basic_settings[key]).toBeString();
+        expect(locale.basic_settings[key].length).toBeGreaterThan(0);
+      }
+    }
   });
 });
