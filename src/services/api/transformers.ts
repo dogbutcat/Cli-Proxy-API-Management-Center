@@ -12,6 +12,7 @@ import type { OpenCodeGoIdentity } from '@/types/opencodeGo';
 import { buildHeaderObject } from '@/utils/headers';
 import { isRecord } from '@/utils/helpers';
 import { readCredentialWeight } from '@/utils/credentialWeight';
+import { parseConfigRoutingStrategy } from '@/utils/routingStrategy';
 import { normalizeOpenCodeGoConfig, normalizeOpenCodeGoIdentity } from './opencodeGo';
 
 const normalizeBoolean = (value: unknown): boolean | undefined =>
@@ -421,7 +422,11 @@ export const normalizeConfigResponse = (raw: unknown): Config => {
   const routing = raw.routing;
   const strategyRaw = isRecord(routing) ? routing.strategy : undefined;
   if (strategyRaw !== undefined && strategyRaw !== null) {
-    config.routingStrategy = String(strategyRaw);
+    const strategy = parseConfigRoutingStrategy(strategyRaw);
+    config.routingStrategy = strategy.value;
+    config.routingStrategyRaw = strategy.raw;
+    config.routingStrategyCanonical = strategy.canonical;
+    config.routingStrategyKnown = strategy.known;
   }
   const apiKeysRaw = raw['api-keys'];
   if (Array.isArray(apiKeysRaw)) {

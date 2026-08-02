@@ -16,6 +16,10 @@ import type {
   PayloadParamValidationErrorCode,
 } from '@/types/visualConfig';
 import { DEFAULT_VISUAL_VALUES } from '@/types/visualConfig';
+import {
+  parseConfigRoutingStrategy,
+  serializeConfigRoutingStrategy,
+} from '@/utils/routingStrategy';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -434,14 +438,7 @@ function parsePayloadProtocol(raw: unknown): string | undefined {
 }
 
 export function parseRoutingStrategy(raw: unknown): RoutingStrategy {
-  const normalized = String(raw ?? '')
-    .trim()
-    .toLowerCase();
-  if (['weighted-round-robin', 'weightedroundrobin', 'wrr'].includes(normalized)) {
-    return 'weighted-round-robin';
-  }
-  if (['fill-first', 'fillfirst', 'ff'].includes(normalized)) return 'fill-first';
-  return 'round-robin';
+  return parseConfigRoutingStrategy(raw).value as RoutingStrategy;
 }
 
 export function parseDisableImageGenerationMode(raw: unknown): DisableImageGenerationMode {
@@ -1496,7 +1493,10 @@ export function useVisualConfig() {
         if (routingDirty) {
           ensureMapInDoc(doc, ['routing']);
           if (dirtyFields.has('routingStrategy')) {
-            doc.setIn(['routing', 'strategy'], values.routingStrategy);
+            doc.setIn(
+              ['routing', 'strategy'],
+              serializeConfigRoutingStrategy(values.routingStrategy)
+            );
           }
           if (dirtyFields.has('routingSessionAffinity')) {
             setBooleanInDoc(doc, ['routing', 'session-affinity'], values.routingSessionAffinity);

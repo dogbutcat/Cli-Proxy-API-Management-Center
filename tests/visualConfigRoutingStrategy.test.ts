@@ -2,41 +2,138 @@ import { describe, expect, test } from 'bun:test';
 import { createElement, useState } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parse as parseYaml } from 'yaml';
+import type { VisualConfigValues } from '../src/types/visualConfig';
 import { parseRoutingStrategy, useVisualConfig } from '../src/hooks/useVisualConfig';
 
-describe('visual config weighted routing strategy', () => {
-  test('recognizes the weighted-round-robin backend value', () => {
-    expect(parseRoutingStrategy('weighted-round-robin')).toBe('weighted-round-robin');
-    expect(parseRoutingStrategy('weightedroundrobin')).toBe('weighted-round-robin');
-    expect(parseRoutingStrategy('wrr')).toBe('weighted-round-robin');
-    expect(parseRoutingStrategy('fill-first')).toBe('fill-first');
-    expect(parseRoutingStrategy('fillfirst')).toBe('fill-first');
-    expect(parseRoutingStrategy('ff')).toBe('fill-first');
-    expect(parseRoutingStrategy(undefined)).toBe('round-robin');
-  });
+function renderAppliedYaml(
+  currentYaml: string,
+  patch: Partial<VisualConfigValues>,
+  loadYaml = currentYaml
+): string {
+  function Harness() {
+    const visualConfig = useVisualConfig();
+    const [phase, setPhase] = useState(0);
 
-  test('writes weighted-round-robin without coercing it to round-robin', () => {
-    function Harness() {
-      const visualConfig = useVisualConfig();
-      const [phase, setPhase] = useState(0);
-
-      if (phase === 0) {
-        visualConfig.setVisualValues({ routingStrategy: 'weighted-round-robin' });
-        setPhase(1);
-      } else {
-        return createElement(
-          'pre',
-          null,
-          visualConfig.applyVisualChangesToYaml('routing:\n  strategy: round-robin\n')
-        );
-      }
-
+    if (phase === 0) {
+      visualConfig.loadVisualValuesFromYaml(loadYaml);
+      setPhase(1);
       return null;
     }
 
-    const markup = renderToStaticMarkup(createElement(Harness));
-    const result = markup.slice('<pre>'.length, -'</pre>'.length);
+    if (phase === 1) {
+      visualConfig.setVisualValues(patch);
+      setPhase(2);
+      return null;
+    }
 
-    expect(parseYaml(result)).toEqual({ routing: { strategy: 'weighted-round-robin' } });
+    return createElement('pre', null, visualConfig.applyVisualChangesToYaml(currentYaml));
+  }
+
+  const markup = renderToStaticMarkup(createElement(Harness));
+  return markup.slice('<pre>'.length, -'</pre>'.length);
+}
+
+describe('visual config routing strategy', () => {
+  test('recognizes backend values and safe aliases', () => {
+    expect(parseRoutingStrategy('round-robin')).toBe('round-robin');
+    expect(parseRoutingStrategy('roundrobin')).toBe('round-robin');
+    expect(parseRoutingStrategy('round_robin')).toBe('round-robin');
+    expect(parseRoutingStrategy('rr')).toBe('round-robin');
+    expect(parseRoutingStrategy('weighted-round-robin')).toBe('weighted-round-robin');
+    expect(parseRoutingStrategy('weightedroundrobin')).toBe('weighted-round-robin');
+    expect(parseRoutingStrategy('weighted_round_robin')).toBe('weighted-round-robin');
+    expect(parseRoutingStrategy('wrr')).toBe('weighted-round-robin');
+    expect(parseRoutingStrategy('fill-first')).toBe('fill-first');
+    expect(parseRoutingStrategy('fillfirst')).toBe('fill-first');
+    expect(parseRoutingStrategy('fill_first')).toBe('fill-first');
+    expect(parseRoutingStrategy('ff')).toBe('fill-first');
+    expect(parseRoutingStrategy('seq-random')).toBe('seq-random');
+    expect(parseRoutingStrategy('seqrandom')).toBe('seq-random');
+    expect(parseRoutingStrategy('sequential-random')).toBe('seq-random');
+    expect(parseRoutingStrategy('sequential_random')).toBe('seq-random');
+    expect(parseRoutingStrategy('sr')).toBe('seq-random');
+    expect(parseRoutingStrategy(undefined)).toBe('round-robin');
+  });
+
+  test('preserves unknown raw values instead of coercing to round-robin', () => {
+    expect(parseRoutingStrategy('custom-routing')).toBe('custom-routing');
+
+    const result = renderAppliedYaml('routing:\n  strategy: round-robin\n', {
+      routingStrategy: 'custom-routing' as VisualConfigValues['routingStrategy'],
+    });
+
+    expect(parseYaml(result)).toEqual({ routing: { strategy: 'custom-routing' } });
+  });
+
+  test('writes canonical backend values when routing strategy is dirty', () => {
+    const wrrResult = renderAppliedYaml('routing:\n  strategy: round-robin\n', {
+      routingStrategy: 'wrr' as VisualConfigValues['routingStrategy'],
+    });
+    const seqResult = renderAppliedYaml('routing:\n  strategy: round-robin\n', {
+      routingStrategy: 'sequential-random' as VisualConfigValues['routingStrategy'],
+    });
+
+    expect(parseYaml(wrrResult)).toEqual({ routing: { strategy: 'weighted-round-robin' } });
+    expect(parseYaml(seqResult)).toEqual({ routing: { strategy: 'seq-random' } });
+  });
+
+  test('saving unrelated fields does not rewrite active routing strategy or siblings', () => {
+    const yaml = [
+      'proxy-url: http://old.example',
+      'routing:',
+      '  strategy: seqrandom',
+      '  session-affinity: false',
+      '  weights:',
+      '    primary: 0',
+      '    backup: 4',
+      '  seq-quota:',
+      '    remaining: 0',
+      '',
+    ].join('\n');
+    const result = renderAppliedYaml(yaml, { proxyUrl: 'http://new.example' });
+
+    expect(parseYaml(result)).toEqual({
+      'proxy-url': 'http://new.example',
+      routing: {
+        strategy: 'seqrandom',
+        'session-affinity': false,
+        weights: {
+          primary: 0,
+          backup: 4,
+        },
+        'seq-quota': {
+          remaining: 0,
+        },
+      },
+    });
+  });
+
+  test('changing routing strategy preserves zero weights and seq quota fields', () => {
+    const yaml = [
+      'routing:',
+      '  strategy: round-robin',
+      '  weights:',
+      '    primary: 0',
+      '    backup: 4',
+      '  seq-quota:',
+      '    remaining: 0',
+      '',
+    ].join('\n');
+    const result = renderAppliedYaml(yaml, {
+      routingStrategy: 'weightedroundrobin' as VisualConfigValues['routingStrategy'],
+    });
+
+    expect(parseYaml(result)).toEqual({
+      routing: {
+        strategy: 'weighted-round-robin',
+        weights: {
+          primary: 0,
+          backup: 4,
+        },
+        'seq-quota': {
+          remaining: 0,
+        },
+      },
+    });
   });
 });

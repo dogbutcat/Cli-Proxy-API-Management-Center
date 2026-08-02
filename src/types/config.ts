@@ -6,6 +6,9 @@
 import type { OpenCodeGoConfig } from './opencodeGo';
 import type { GeminiKeyConfig, ProviderKeyConfig, OpenAIProviderConfig } from './provider';
 
+export type CanonicalRoutingStrategy =
+  'round-robin' | 'fill-first' | 'weighted-round-robin' | 'seq-random';
+
 export interface QuotaExceededConfig {
   switchProject?: boolean;
   switchPreviewModel?: boolean;
@@ -23,6 +26,9 @@ export interface Config {
   wsAuth?: boolean;
   forceModelPrefix?: boolean;
   routingStrategy?: string;
+  routingStrategyRaw?: string;
+  routingStrategyCanonical?: CanonicalRoutingStrategy;
+  routingStrategyKnown?: boolean;
   apiKeys?: string[];
   geminiApiKeys?: GeminiKeyConfig[];
   interactionsApiKeys?: GeminiKeyConfig[];

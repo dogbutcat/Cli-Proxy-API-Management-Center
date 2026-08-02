@@ -8,6 +8,7 @@ import type { Config } from '@/types';
 import type { RawConfigSection } from '@/types/config';
 import { configApi } from '@/services/api/config';
 import { CACHE_EXPIRY_MS } from '@/utils/constants';
+import { parseConfigRoutingStrategy } from '@/utils/routingStrategy';
 
 interface ConfigCache {
   data: Config;
@@ -101,7 +102,13 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
           nextConfig.forceModelPrefix = value as Config['forceModelPrefix'];
           break;
         case 'routing/strategy':
-          nextConfig.routingStrategy = value as Config['routingStrategy'];
+          {
+            const strategy = parseConfigRoutingStrategy(value);
+            nextConfig.routingStrategy = strategy.value;
+            nextConfig.routingStrategyRaw = strategy.raw;
+            nextConfig.routingStrategyCanonical = strategy.canonical;
+            nextConfig.routingStrategyKnown = strategy.known;
+          }
           break;
         case 'api-keys':
           nextConfig.apiKeys = value as Config['apiKeys'];
