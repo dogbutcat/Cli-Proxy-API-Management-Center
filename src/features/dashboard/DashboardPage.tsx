@@ -11,7 +11,13 @@ import {
 } from '@/components/ui/icons';
 import { useAuthStore } from '@/stores';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { formatCompactNumber, formatDateValue, formatPercent } from '@/utils/format';
+import {
+  formatCompactNumber,
+  formatDateValue,
+  formatFileSize,
+  formatPercent,
+  formatUnixTimestamp,
+} from '@/utils/format';
 import { useDashboardOverview } from './hooks/useDashboardOverview';
 import { LiveWire } from './components/LiveWire';
 import { Meter } from './components/Meter';
@@ -23,7 +29,7 @@ import styles from './dashboard.module.scss';
 
 const DASH = '—';
 
-/** KPI 卡左上角色签：有语义色调的卡用状态色，其余保持中性 */
+/** KPI accent strip: semantic tiles use state colors, neutral tiles stay quiet. */
 const TILE_ACCENTS: Record<MeterTone, string> = {
   good: 'var(--viz-success)',
   warning: 'var(--amber-color)',
@@ -31,7 +37,7 @@ const TILE_ACCENTS: Record<MeterTone, string> = {
   idle: 'var(--text-quaternary)',
 };
 
-/** 大数字：六位以内用千分位，再往上压缩，避免撑破排版 */
+/** Large figures use grouped digits below six places, then compact to avoid overflow. */
 const formatHeadline = (value: number): string =>
   value < 100_000 ? value.toLocaleString() : formatCompactNumber(value);
 
@@ -40,14 +46,24 @@ export function DashboardPage() {
   const serverVersion = useAuthStore((state) => state.serverVersion);
   const serverBuildDate = useAuthStore((state) => state.serverBuildDate);
 
-  const { connectionStatus, connected, config, counts, traffic, providers, credentials, refresh } =
-    useDashboardOverview();
+  const {
+    connectionStatus,
+    connected,
+    config,
+    counts,
+    traffic,
+    providers,
+    credentials,
+    usage,
+    refresh,
+  } = useDashboardOverview();
 
   useHeaderRefresh(refresh, connected);
 
-  /* Hero 与静态网格走分组级联；异步内容区（图表/供应商）保持整块 reveal */
+  /* Hero/static grids reveal as groups; async chart/provider sections reveal as whole blocks. */
   const heroRef = useRevealGroup<HTMLElement>();
   const statsRef = useRevealGroup<HTMLElement>(0.12);
+  const usageRef = useRevealGroup<HTMLElement>();
   const trafficRef = useRevealOnScroll<HTMLElement>();
   const fleetRef = useRevealOnScroll<HTMLElement>();
   const detailRef = useRevealGroup<HTMLElement>();
@@ -81,8 +97,33 @@ export function DashboardPage() {
 
   const unknownProviderLabel = t('dashboard.provider_unknown');
   const successRateTone = toneForSuccessRate(traffic.successRate);
+  const usageSummary = usage.summary;
+  const usageStatus = usage.status;
+  const usageStatusText =
+    usage.loading && !usageSummary
+      ? t('dashboard.usage_state_loading', { defaultValue: 'Loading usage data' })
+      : usage.unsupported
+        ? t('dashboard.usage_state_unsupported', { defaultValue: 'Usage store unsupported' })
+        : usage.stale
+          ? t('dashboard.usage_state_stale', { defaultValue: 'Showing last good usage data' })
+          : usage.partial
+            ? t('dashboard.usage_state_partial', { defaultValue: 'Partial usage data' })
+            : usage.updatedAtMs
+              ? t('dashboard.usage_state_updated', {
+                  defaultValue: 'Updated {{time}}',
+                  time: formatUnixTimestamp(usage.updatedAtMs, i18n.language),
+                })
+              : t('dashboard.usage_state_idle', { defaultValue: 'Waiting for usage data' });
+  const usageStatusTone: MeterTone =
+    usage.summaryState === 'error' || usage.statusState === 'error'
+      ? 'critical'
+      : usage.partial || usage.stale
+        ? 'warning'
+        : usage.summaryState === 'ok' || usage.statusState === 'ok'
+          ? 'good'
+          : 'idle';
 
-  /** 标题是算出来的判词，不是写死的口号；句尾句号充当状态灯 */
+  /** The title is a computed verdict, with the trailing period acting as the status light. */
   const verdict = useMemo(() => {
     if (!connected) {
       return connectionStatus === 'connecting'
@@ -101,7 +142,7 @@ export function DashboardPage() {
     return { key: keyByTone[successRateTone], accent: TILE_ACCENTS[successRateTone] };
   }, [connected, connectionStatus, traffic.total, traffic.successRate, successRateTone]);
 
-  /* 句号状态灯只在「有活着的流量」时呼吸；离线/静默时保持安静 */
+  /* The period breathes only when traffic is alive; offline/quiet states stay still. */
   const heroAlive = connected && traffic.total > 0;
 
   const connectionLabel = t(
@@ -179,6 +220,80 @@ export function DashboardPage() {
         { label: t('dashboard.runtime_request_log'), on: Boolean(config.requestLog) },
         { label: t('dashboard.runtime_ws_auth'), on: Boolean(config.wsAuth) },
         { label: t('dashboard.runtime_model_prefix'), on: Boolean(config.forceModelPrefix) },
+      ]
+    : [];
+
+  const todayUsageRows = usageSummary
+    ? [
+        {
+          label: t('dashboard.usage_calls_success', { defaultValue: 'Succeeded' }),
+          value: usageSummary.today.successCalls.toLocaleString(),
+        },
+        {
+          label: t('dashboard.usage_calls_failed', { defaultValue: 'Failed' }),
+          value: usageSummary.today.failureCalls.toLocaleString(),
+        },
+        {
+          label: t('dashboard.usage_avg_latency', { defaultValue: 'Avg latency' }),
+          value:
+            usageSummary.today.averageLatencyMs === null
+              ? DASH
+              : `${Math.round(usageSummary.today.averageLatencyMs).toLocaleString()} ms`,
+        },
+        {
+          label: t('dashboard.usage_cost', { defaultValue: 'Cost' }),
+          value: new Intl.NumberFormat(i18n.language, {
+            style: 'currency',
+            currency: 'USD',
+            maximumFractionDigits: usageSummary.today.totalCost >= 1 ? 2 : 4,
+          }).format(usageSummary.today.totalCost),
+        },
+      ]
+    : [];
+
+  const tokenRows = usageSummary
+    ? [
+        {
+          label: t('dashboard.usage_input_tokens', { defaultValue: 'Input' }),
+          value: formatCompactNumber(usageSummary.today.inputTokens),
+        },
+        {
+          label: t('dashboard.usage_output_tokens', { defaultValue: 'Output' }),
+          value: formatCompactNumber(usageSummary.today.outputTokens),
+        },
+        {
+          label: t('dashboard.usage_reasoning_tokens', { defaultValue: 'Reasoning' }),
+          value: formatCompactNumber(usageSummary.today.reasoningTokens),
+        },
+        {
+          label: t('dashboard.usage_cached_tokens', { defaultValue: 'Cached' }),
+          value: formatCompactNumber(
+            usageSummary.today.cachedTokens +
+              usageSummary.today.cacheReadTokens +
+              usageSummary.today.cacheCreationTokens
+          ),
+        },
+      ]
+    : [];
+
+  const collectorRows = usageStatus
+    ? [
+        {
+          label: t('dashboard.usage_store_events', { defaultValue: 'Events' }),
+          value: usageStatus.events.toLocaleString(),
+        },
+        {
+          label: t('dashboard.usage_store_dead_letters', { defaultValue: 'Dead letters' }),
+          value: usageStatus.deadLetters.toLocaleString(),
+        },
+        {
+          label: t('dashboard.usage_store_size', { defaultValue: 'Store size' }),
+          value: formatFileSize(usageStatus.dbSizeBytes),
+        },
+        {
+          label: t('dashboard.usage_collector_queue', { defaultValue: 'Collector queue' }),
+          value: usageStatus.collector?.queueSize.toLocaleString() ?? DASH,
+        },
       ]
     : [];
 
@@ -336,6 +451,185 @@ export function DashboardPage() {
             <span className={styles.statHint}>{tile.hint}</span>
           </article>
         ))}
+      </section>
+
+      {/* ---------- Local usage summary ---------- */}
+      <section className={styles.section} ref={usageRef}>
+        <header className={styles.sectionHead} data-reveal>
+          <span className={styles.eyebrow}>
+            {t('dashboard.usage_eyebrow', { defaultValue: 'Local usage' })}
+          </span>
+          <h2 className={styles.sectionTitle}>
+            {t('dashboard.usage_title', { defaultValue: 'Today, from the local store' })}
+          </h2>
+          <p className={styles.sectionDescription}>{usageStatusText}</p>
+        </header>
+
+        {usage.issues.length > 0 && (
+          <div className={styles.usageIssueStrip} data-reveal>
+            {usage.issues.slice(0, 2).map((issue, index) => (
+              <span key={`${issue.source}-${issue.kind ?? 'issue'}-${index}`}>
+                {issue.message ??
+                  t('dashboard.usage_issue_fallback', { defaultValue: 'Usage slice warning' })}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className={styles.usageGrid}>
+          <article className={styles.usageCard} data-reveal>
+            <header className={styles.usageCardHead}>
+              <span className={styles.usageCardLabel}>
+                {t('dashboard.usage_summary_card', { defaultValue: 'Summary' })}
+              </span>
+              <i
+                className={`${styles.usageStateDot} ${styles[`usageState_${usageStatusTone}`]}`}
+                aria-hidden="true"
+              />
+            </header>
+            <strong className={styles.usageFigure}>
+              {usageSummary ? formatHeadline(usageSummary.today.totalCalls) : DASH}
+            </strong>
+            <span className={styles.usageFigureHint}>
+              {usageSummary
+                ? t('dashboard.usage_rolling_meta', {
+                    defaultValue: '{{rpm}} RPM · {{tpm}} TPM over 30m',
+                    rpm: usageSummary.rolling30m.rpm.toLocaleString(),
+                    tpm: usageSummary.rolling30m.tpm.toLocaleString(),
+                  })
+                : t('dashboard.usage_no_summary', { defaultValue: 'No summary loaded' })}
+            </span>
+            {usageSummary && (
+              <Meter
+                value={usageSummary.today.successRate}
+                tone={toneForSuccessRate(usageSummary.today.successRate)}
+                ariaLabel={t('dashboard.success_rate')}
+                className={styles.usageMeter}
+              />
+            )}
+            <dl className={styles.usageMetricGrid}>
+              {todayUsageRows.map((row) => (
+                <div key={row.label}>
+                  <dt>{row.label}</dt>
+                  <dd>{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </article>
+
+          <article className={styles.usageCard} data-reveal>
+            <header className={styles.usageCardHead}>
+              <span className={styles.usageCardLabel}>
+                {t('dashboard.usage_tokens_card', { defaultValue: 'Tokens' })}
+              </span>
+              <span className={styles.usagePill}>
+                {usageSummary ? formatCompactNumber(usageSummary.today.zeroTokenCalls) : DASH}{' '}
+                {t('dashboard.usage_zero_token_calls', { defaultValue: 'zero-token' })}
+              </span>
+            </header>
+            <strong className={styles.usageFigure}>
+              {usageSummary ? formatHeadline(usageSummary.today.totalTokens) : DASH}
+            </strong>
+            <span className={styles.usageFigureHint}>
+              {t('dashboard.usage_tokens_hint', {
+                defaultValue: 'Prompt, output, cache, reasoning',
+              })}
+            </span>
+            <dl className={styles.usageMetricGrid}>
+              {tokenRows.map((row) => (
+                <div key={row.label}>
+                  <dt>{row.label}</dt>
+                  <dd>{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </article>
+
+          <article className={styles.usageCard} data-reveal>
+            <header className={styles.usageCardHead}>
+              <span className={styles.usageCardLabel}>
+                {t('dashboard.usage_models_card', { defaultValue: 'Models today' })}
+              </span>
+            </header>
+            {usageSummary && usageSummary.topModelsToday.length > 0 ? (
+              <ul className={styles.usageList}>
+                {usageSummary.topModelsToday.map((model) => (
+                  <li key={model.model}>
+                    <span className={styles.usageListMain}>{model.model || DASH}</span>
+                    <span className={styles.usageListMeta}>
+                      {model.calls.toLocaleString()} · {formatCompactNumber(model.tokens)} ·{' '}
+                      {formatPercent(model.successRate)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className={styles.emptyNote}>
+                {t('dashboard.usage_models_empty', { defaultValue: 'No model usage today.' })}
+              </p>
+            )}
+          </article>
+
+          <article className={styles.usageCard} data-reveal>
+            <header className={styles.usageCardHead}>
+              <span className={styles.usageCardLabel}>
+                {t('dashboard.usage_failures_card', { defaultValue: 'Recent failures' })}
+              </span>
+            </header>
+            {usageSummary && usageSummary.recentFailures.length > 0 ? (
+              <ul className={styles.usageList}>
+                {usageSummary.recentFailures.map((failure) => (
+                  <li key={failure.eventHash || failure.requestId || failure.timestampMs}>
+                    <span className={styles.usageListMain}>
+                      {failure.model || failure.provider || DASH}
+                    </span>
+                    <span className={styles.usageListMeta}>
+                      {failure.failStatusCode ?? DASH} ·{' '}
+                      {failure.failSummary ??
+                        t('dashboard.usage_failure_fallback', { defaultValue: 'Request failed' })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className={styles.emptyNote}>
+                {t('dashboard.usage_failures_empty', { defaultValue: 'No recent failures.' })}
+              </p>
+            )}
+          </article>
+
+          <article className={styles.usageCard} data-reveal>
+            <header className={styles.usageCardHead}>
+              <span className={styles.usageCardLabel}>
+                {t('dashboard.usage_store_card', { defaultValue: 'Collector & store' })}
+              </span>
+              <span className={styles.usagePill}>
+                {usageStatus?.source ?? usageStatus?.service ?? DASH}
+              </span>
+            </header>
+            <dl className={styles.usageMetricGrid}>
+              {collectorRows.map((row) => (
+                <div key={row.label}>
+                  <dt>{row.label}</dt>
+                  <dd>{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+            {usageStatus?.collector && (
+              <p className={styles.usageFigureHint}>
+                {t('dashboard.usage_collector_meta', {
+                  defaultValue: '{{inserted}} inserted · {{dropped}} dropped · {{skipped}} skipped',
+                  inserted: usageStatus.collector.totalInserted.toLocaleString(),
+                  dropped: usageStatus.collector.totalDropped.toLocaleString(),
+                  skipped: usageStatus.collector.totalSkipped.toLocaleString(),
+                })}
+              </p>
+            )}
+            {usageStatus?.collector?.lastError && (
+              <p className={styles.usageErrorText}>{usageStatus.collector.lastError}</p>
+            )}
+          </article>
+        </div>
       </section>
 
       {/* ---------- Traffic ---------- */}

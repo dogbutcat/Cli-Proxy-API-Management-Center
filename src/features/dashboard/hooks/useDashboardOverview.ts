@@ -17,6 +17,7 @@ import {
   type ProviderTraffic,
   type TrafficWindow,
 } from '../types';
+import { useDashboardUsageSummary } from './useDashboardUsageSummary';
 
 const EMPTY_TRAFFIC: TrafficWindow = {
   buckets: [],
@@ -30,7 +31,7 @@ const EMPTY_TRAFFIC: TrafficWindow = {
   windowMinutes: 0,
 };
 
-/** `api-key-usage` 的键形如 `<baseUrl>|<apiKey>`，取第一个分隔符之后的部分 */
+/** `api-key-usage` keys use `<baseUrl>|<apiKey>`; keep the part after the first separator. */
 const apiKeyFromCompositeKey = (compositeKey: string): string => {
   const separatorIndex = compositeKey.indexOf('|');
   return separatorIndex < 0 ? '' : compositeKey.slice(separatorIndex + 1).trim();
@@ -108,11 +109,12 @@ export const getProviderKeyCounts = (config: Config) => ({
 });
 
 /**
- * 汇总仪表盘所需的全部数据。
+ * Collect all dashboard data.
  *
- * 流量数据有两个互不重叠的来源：`api-key-usage`（配置内联的 API Key 凭证）
- * 与 `auth-files`（文件/运行时凭证）。后端对二者的判定条件互斥，但插件提供的
- * 凭证理论上可同时命中，因此这里按 `account_type` + `account` 做一次防御性去重。
+ * Traffic has two normally disjoint sources: inline API keys from `api-key-usage`
+ * and file/runtime credentials from `auth-files`. Backend classification is
+ * mutually exclusive, but plugin credentials can theoretically appear in both,
+ * so `account_type` + `account` is used as a defensive de-dupe key.
  */
 export function useDashboardOverview() {
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
@@ -128,9 +130,10 @@ export function useDashboardOverview() {
   const connected = connectionStatus === 'connected';
   const resolveApiKeysForModels = useApiKeysForModels();
 
-  const { usageByProvider, refreshRecentRequests } = useProviderRecentRequests({
+  const { usageByProvider, loadRecentRequests, refreshRecentRequests } = useProviderRecentRequests({
     enabled: connected,
   });
+  const { usage, loadUsageSummary } = useDashboardUsageSummary({ enabled: connected });
 
   const [authFiles, setAuthFiles] = useState<AuthFileItem[] | null>(null);
   const [authFilesLoading, setAuthFilesLoading] = useState(false);
@@ -142,7 +145,7 @@ export function useDashboardOverview() {
       const response = await authFilesApi.list();
       setAuthFiles(response.files);
     } catch {
-      setAuthFiles(null);
+      // Preserve the last-good credential slice when auth-files fails.
     } finally {
       setAuthFilesLoading(false);
     }
@@ -154,26 +157,39 @@ export function useDashboardOverview() {
       const apiKeys = await resolveApiKeysForModels();
       await fetchModelsFromStore(apiBase, apiKeys[0]);
     } catch {
-      // 模型列表失败不应影响仪表盘其余部分
+      // Model list failures should not affect the rest of the dashboard.
     }
   }, [connected, apiBase, resolveApiKeysForModels, fetchModelsFromStore]);
 
+  const loadDashboard = useCallback(
+    async (options: { force?: boolean } = {}) => {
+      if (!connected) return;
+      await Promise.allSettled([
+        fetchConfig(Boolean(options.force)),
+        loadAuthFiles(),
+        loadModels(),
+        options.force ? refreshRecentRequests() : loadRecentRequests(),
+        loadUsageSummary(),
+      ]);
+    },
+    [
+      connected,
+      fetchConfig,
+      loadAuthFiles,
+      loadModels,
+      loadRecentRequests,
+      loadUsageSummary,
+      refreshRecentRequests,
+    ]
+  );
+
   useEffect(() => {
-    if (!connected) return;
-    void fetchConfig().catch(() => undefined);
-    void loadAuthFiles();
-    void loadModels();
-  }, [connected, fetchConfig, loadAuthFiles, loadModels]);
+    void loadDashboard().catch(() => undefined);
+  }, [loadDashboard]);
 
   const refresh = useCallback(async () => {
-    if (!connected) return;
-    await Promise.allSettled([
-      fetchConfig(true),
-      loadAuthFiles(),
-      loadModels(),
-      refreshRecentRequests(),
-    ]);
-  }, [connected, fetchConfig, loadAuthFiles, loadModels, refreshRecentRequests]);
+    await loadDashboard({ force: true });
+  }, [loadDashboard]);
 
   const providerKeyCounts = useMemo(() => (config ? getProviderKeyCounts(config) : null), [config]);
 
@@ -212,7 +228,7 @@ export function useDashboardOverview() {
         .trim()
         .toLowerCase();
       const account = String(file.account ?? '').trim();
-      // 已经由 api-key-usage 统计过的凭证不再重复计入
+      // Credentials already counted through api-key-usage must not be double counted.
       if (accountType === 'api_key' && account && apiKeysFromUsage.has(account)) {
         return;
       }
@@ -300,7 +316,8 @@ export function useDashboardOverview() {
     traffic,
     providers,
     credentials,
-    /** 首屏骨架的判定：配置与凭证都还没回来 */
+    usage,
+    /** Initial skeleton condition: neither config nor credentials have arrived. */
     initialLoading: connected && !config && authFiles === null,
     authFilesLoading,
     refresh,

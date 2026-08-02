@@ -1,27 +1,28 @@
 import type { RecentRequestBucket } from '@/utils/recentRequests';
+import type { DashboardSummary, UsageApiIssue, UsageStatus } from '@/services/api/usageService';
 
-/** 每个统计桶覆盖的分钟数（后端固定为 10 分钟 × 20 桶） */
+/** Each traffic bucket covers 10 minutes; the backend returns 20 buckets. */
 export const TRAFFIC_BUCKET_MINUTES = 10;
 
-/** 聚合后的整体流量窗口 */
+/** Aggregated traffic window. */
 export interface TrafficWindow {
   buckets: RecentRequestBucket[];
   totalSuccess: number;
   totalFailure: number;
   total: number;
-  /** 0–100；窗口内无请求时为 null */
+  /** 0-100; null when the window has no requests. */
   successRate: number | null;
-  /** 单桶最大请求数，用于图表纵轴 */
+  /** Largest single-bucket request count, used for the chart y-axis. */
   peakTotal: number;
-  /** 峰值所在桶下标，-1 表示无数据 */
+  /** Bucket index for the peak, or -1 when no data exists. */
   peakIndex: number;
-  /** 有请求的桶数量 */
+  /** Number of buckets with at least one request. */
   activeBuckets: number;
-  /** 窗口跨度（分钟） */
+  /** Window size in minutes. */
   windowMinutes: number;
 }
 
-/** 单个供应商的流量切片 */
+/** Traffic slice for one provider. */
 export interface ProviderTraffic {
   id: string;
   credentials: number;
@@ -32,20 +33,40 @@ export interface ProviderTraffic {
   buckets: RecentRequestBucket[];
 }
 
-/** 凭证健康度 */
+/** Credential health summary. */
 export interface CredentialHealth {
   total: number;
   active: number;
   disabled: number;
   unavailable: number;
-  /** 按供应商类型分组的凭证数，按数量降序 */
+  /** Credential counts grouped by provider type, sorted by count descending. */
   byType: Array<{ type: string; count: number }>;
 }
 
-/** 顶部计数卡片的原始数值 */
+/** Raw values for the top metric cards. */
 export interface DashboardCounts {
   managementKeys: number | null;
   providerKeys: number | null;
   credentials: number | null;
   models: number | null;
+}
+
+export type DashboardUsageSliceState = 'idle' | 'ok' | 'empty' | 'unsupported' | 'error';
+
+export interface DashboardUsageSliceIssue extends UsageApiIssue {
+  source: 'summary' | 'status';
+}
+
+export interface DashboardUsageSlice {
+  summary: DashboardSummary | null;
+  status: UsageStatus | null;
+  summaryState: DashboardUsageSliceState;
+  statusState: DashboardUsageSliceState;
+  loading: boolean;
+  refreshing: boolean;
+  partial: boolean;
+  stale: boolean;
+  unsupported: boolean;
+  issues: DashboardUsageSliceIssue[];
+  updatedAtMs: number | null;
 }

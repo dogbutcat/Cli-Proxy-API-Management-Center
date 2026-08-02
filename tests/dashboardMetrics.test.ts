@@ -3,6 +3,7 @@ import { formatCompactNumber, formatPercent } from '../src/utils/format';
 import { getProviderKeyCounts } from '../src/features/dashboard/hooks/useDashboardOverview';
 import {
   axisMax,
+  getDashboardTodayStartMs,
   niceCeil,
   providerLabel,
   splitWindowMinutes,
@@ -62,7 +63,7 @@ describe('niceCeil', () => {
 
 describe('axisMax', () => {
   test('lands every gridline on a whole number', () => {
-    // 峰值 112 → 上限 120（刻度 0/30/60/90/120），而不是浪费半张图的 200
+    // Peak 112 -> axis 120 (ticks 0/30/60/90/120), not a wasteful 200.
     expect(axisMax(112, 4)).toBe(120);
     expect(axisMax(7, 4)).toBe(8);
     expect(axisMax(1533, 4)).toBe(1600);
@@ -72,10 +73,10 @@ describe('axisMax', () => {
     for (const peak of [1, 3, 9, 17, 64, 112, 250, 999, 4321]) {
       const max = axisMax(peak, 4);
       expect(max).toBeGreaterThanOrEqual(peak);
-      // 上限不应超过峰值的两倍，否则柱子被压得太矮。
-      // 峰值极小时受「每格至少 1」约束，下限就是间隔数本身。
+      // The axis should not exceed twice the peak, or bars become too short.
+      // Tiny peaks are constrained by a minimum step of 1, so the floor is the interval count.
       expect(max).toBeLessThanOrEqual(Math.max(4, peak * 2));
-      // 每格都必须是整数
+      // Every gridline must land on an integer.
       expect(Number.isInteger(max / 4)).toBe(true);
     }
   });
@@ -102,6 +103,21 @@ describe('splitWindowMinutes', () => {
     expect(splitWindowMinutes(200)).toEqual({ hours: 3, minutes: 20 });
     expect(splitWindowMinutes(60)).toEqual({ hours: 1, minutes: 0 });
     expect(splitWindowMinutes(40)).toEqual({ hours: 0, minutes: 40 });
+  });
+});
+
+describe('getDashboardTodayStartMs', () => {
+  test('returns the local midnight for the dashboard summary query', () => {
+    const instant = new Date(2026, 7, 2, 15, 30, 45, 120).getTime();
+    const start = new Date(getDashboardTodayStartMs(instant));
+
+    expect(start.getFullYear()).toBe(2026);
+    expect(start.getMonth()).toBe(7);
+    expect(start.getDate()).toBe(2);
+    expect(start.getHours()).toBe(0);
+    expect(start.getMinutes()).toBe(0);
+    expect(start.getSeconds()).toBe(0);
+    expect(start.getMilliseconds()).toBe(0);
   });
 });
 
