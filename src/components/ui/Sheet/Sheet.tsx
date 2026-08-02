@@ -156,7 +156,7 @@ export function Sheet({
 
   useEffect(() => {
     if (open || isVisible) return;
-    previouslyFocusedRef.current?.focus();
+    previouslyFocusedRef.current?.focus({ preventScroll: true });
     previouslyFocusedRef.current = null;
   }, [isVisible, open]);
 
@@ -173,7 +173,7 @@ export function Sheet({
       const focusables = getFocusableElements();
       if (focusables.length === 0) {
         event.preventDefault();
-        sheetRef.current?.focus();
+        sheetRef.current?.focus({ preventScroll: true });
         return;
       }
       const firstEl = focusables[0];
@@ -182,13 +182,13 @@ export function Sheet({
       if (event.shiftKey) {
         if (active === firstEl || active === sheetRef.current) {
           event.preventDefault();
-          lastEl.focus();
+          lastEl.focus({ preventScroll: true });
         }
         return;
       }
       if (active === lastEl) {
         event.preventDefault();
-        firstEl.focus();
+        firstEl.focus({ preventScroll: true });
       }
     };
     document.addEventListener('keydown', handleKey);
