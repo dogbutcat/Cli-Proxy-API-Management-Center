@@ -114,6 +114,45 @@ describe('OpenCode Go quota adapter', () => {
     expect(html).toContain('75%');
   });
 
+  test('refreshes legacy entry names and renders rolling weekly monthly quota payloads', async () => {
+    const postUrls: string[] = [];
+    client.post = async (url) => {
+      postUrls.push(url);
+      return {
+        'entry-name': 'opencode-go:openai:legacy-entry',
+        quota: {
+          rolling: { percentRemaining: 80, resetInSec: 3600 },
+          weekly: { percentRemaining: 40, resetInSec: 90_000 },
+          monthly: { percentRemaining: 10, resetInSec: 0 },
+        },
+        timestamp: '2026-08-02T14:00:00Z',
+      };
+    };
+    client.get = async () => ({});
+
+    const data = await OPENCODE_GO_CONFIG.fetchQuota(
+      {
+        name: 'shadow-file-name.json',
+        provider: 'opencode-go',
+        authIndex: 'shadow-auth-index',
+        workspaceId: 'workspace-legacy',
+        opencode_go_entry_name: 'opencode-go:openai:legacy-entry',
+      } as AuthFileItem,
+      t
+    );
+    const html = renderBody(OPENCODE_GO_CONFIG.buildSuccessState(data));
+
+    expect(postUrls).toEqual([
+      '/opencode-go/quota/opencode-go%3Aopenai%3Alegacy-entry/refresh',
+    ]);
+    expect(html).toContain('Rolling');
+    expect(html).toContain('Weekly');
+    expect(html).toContain('Monthly');
+    expect(html).toContain('80%');
+    expect(html).toContain('Refreshes in 1h 0m');
+    expect(html).not.toContain('Please update the CPA version');
+  });
+
   test('renders missing identity as an explicit diagnostic without an upstream call', async () => {
     let postCount = 0;
     client.post = async () => {

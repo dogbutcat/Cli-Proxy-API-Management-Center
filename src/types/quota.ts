@@ -81,6 +81,8 @@ export interface CodexRateLimitResetCredit {
 export interface CodexUsagePayload {
   plan_type?: string;
   planType?: string;
+  subscription_active_until?: string | number | null;
+  subscriptionActiveUntil?: string | number | null;
   rate_limit?: CodexRateLimitInfo | null;
   rateLimit?: CodexRateLimitInfo | null;
   code_review_rate_limit?: CodexRateLimitInfo | null;
@@ -232,6 +234,7 @@ export interface CodexQuotaWindow {
   resetLabel: string;
   /** Reset instant in epoch ms; null when the payload carried no timestamp. */
   resetAtMs?: number | null;
+  limitWindowSeconds?: number | null;
   /** Window length in hours, from the payload's limit_window_seconds. */
   periodHours?: number | null;
 }
@@ -377,7 +380,7 @@ export interface XaiProductUsageSummary {
 }
 
 export interface XaiBillingSummary {
-  mode: 'billing' | 'paid-health';
+  mode?: 'billing' | 'paid-health';
   source?: 'cli-chat-proxy' | 'api.x.ai-fallback';
   planType?: 'paid';
   healthStatus?: 'chat-ok';

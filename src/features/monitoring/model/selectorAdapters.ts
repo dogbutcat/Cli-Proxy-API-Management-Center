@@ -1,118 +1,171 @@
-import type { MonitoringAnalyticsResponse } from '@/services/api/usageService';
+import type { MonitoringAnalyticsFilterOptions } from '@/services/api/usageService';
+import type { CredentialInfo } from '@/types/sourceInfo';
+import { buildSourceInfoMap } from '@/utils/sourceResolver';
+import { formatApiKeyHashLabel, maskEmailLike, readString } from './base';
+import { sanitizeApiKeyDisplayText, type ApiKeyDisplayInfo } from './apiKeys';
 import {
-  extractMonitoringArrayPayload,
-  isMonitoringRecord,
-  readMonitoringString,
-} from './base';
+  buildFilterOptionsFromAnalytics,
+  buildMonitoringAccountFilterValue,
+} from './analyticsAdapters';
+import type {
+  MonitoringAccountRow,
+  MonitoringApiKeyRow,
+  MonitoringAuthMeta,
+  MonitoringChannelMeta,
+  MonitoringFilterOptions,
+} from './types';
 
-export type MonitoringSelectorOption = {
-  value: string;
-  label: string;
-  count?: number;
+const uniqueReadableValues = (values: Array<string | null | undefined> = []) =>
+  Array.from(new Set(values.map(readString).filter((value) => value && value !== '-'))).sort();
+
+const normalizeProviderType = (value: string | null | undefined): string => {
+  const trimmed = readString(value).trim().toLowerCase();
+  return trimmed.startsWith('openai-compatible-') ? 'openai-compatible' : trimmed;
 };
 
-export type MonitoringSelectorSet = {
-  providers: MonitoringSelectorOption[];
-  models: MonitoringSelectorOption[];
-  accounts: MonitoringSelectorOption[];
-  authIndices: MonitoringSelectorOption[];
-  apiKeyHashes: MonitoringSelectorOption[];
-  sourceHashes: MonitoringSelectorOption[];
-  requestTypes: MonitoringSelectorOption[];
-  headerTraceIds: MonitoringSelectorOption[];
-};
+const normalizeApiKeyHashValues = (values: Array<string | null | undefined> = []) =>
+  uniqueReadableValues(values).map((value) => value.toLowerCase());
 
-const EMPTY_SELECTORS: MonitoringSelectorSet = {
-  providers: [],
-  models: [],
-  accounts: [],
-  authIndices: [],
-  apiKeyHashes: [],
-  sourceHashes: [],
-  requestTypes: [],
-  headerTraceIds: [],
-};
+const normalizeFilterText = (value: string | null | undefined) =>
+  readString(value).trim().toLowerCase();
 
-const readNumber = (value: unknown): number | undefined => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return undefined;
-};
+const buildSelectorAccountRowsFromValues = (
+  accounts: Array<string | null | undefined> = []
+): MonitoringAccountRow[] =>
+  uniqueReadableValues(accounts).map((account) => ({
+    id: `account:${account}`,
+    account,
+    filterValue: buildMonitoringAccountFilterValue({ account }),
+    displayAccount: account,
+    accountMasked: maskEmailLike(account),
+    authLabels: [],
+    authIndices: [],
+    sourceKeys: [],
+    channels: [],
+    totalCalls: 0,
+    successCalls: 0,
+    failureCalls: 0,
+    successRate: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    totalTokens: 0,
+    totalCost: 0,
+    averageLatencyMs: null,
+    lastSeenAt: 0,
+    recentPattern: [],
+    models: [],
+  }));
 
-const readAlias = (record: Record<string, unknown>, ...keys: string[]): unknown => {
-  for (const key of keys) {
-    if (record[key] !== undefined) return record[key];
-  }
-  return undefined;
-};
-
-const optionFromValue = (value: unknown): MonitoringSelectorOption | null => {
-  if (isMonitoringRecord(value)) {
-    const rawValue = readMonitoringString(
-      readAlias(value, 'value', 'key', 'id', 'name', 'hash', 'auth_index', 'authIndex')
+const buildSelectorApiKeyRowsFromValues = (
+  apiKeyHashes: Array<string | null | undefined> = [],
+  apiKeyDisplayMap: Map<string, ApiKeyDisplayInfo>
+): MonitoringApiKeyRow[] =>
+  normalizeApiKeyHashValues(apiKeyHashes).map((apiKeyHash) => {
+    const apiKeyDisplay = apiKeyDisplayMap.get(apiKeyHash);
+    const fallbackApiKeyLabel = formatApiKeyHashLabel(apiKeyHash);
+    const apiKeyLabel = sanitizeApiKeyDisplayText(
+      apiKeyDisplay?.label || fallbackApiKeyLabel,
+      fallbackApiKeyLabel
     );
-    if (!rawValue) return null;
+    const apiKeyMasked = sanitizeApiKeyDisplayText(
+      apiKeyDisplay?.masked || apiKeyLabel,
+      apiKeyLabel
+    );
     return {
-      value: rawValue,
-      label: readMonitoringString(readAlias(value, 'label', 'name', 'title')) || rawValue,
-      count: readNumber(readAlias(value, 'count', 'total', 'total_calls', 'totalCalls')),
+      id: apiKeyHash,
+      apiKeyHash,
+      apiKeyLabel,
+      apiKeyMasked,
+      rawApiKey: apiKeyDisplay?.rawKey,
+      isUnknown: false,
+      authLabels: [],
+      sourceLabels: [],
+      channels: [],
+      totalCalls: 0,
+      successCalls: 0,
+      failureCalls: 0,
+      successRate: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      totalTokens: 0,
+      totalCost: 0,
+      averageLatencyMs: null,
+      lastSeenAt: 0,
+      models: [],
     };
-  }
+  });
 
-  const text = readMonitoringString(value);
-  return text ? { value: text, label: text } : null;
+const mergeSelectorAccountRows = (
+  rows: MonitoringAccountRow[],
+  accounts: Array<string | null | undefined> = []
+) => {
+  const seen = new Set(rows.map((row) => normalizeFilterText(row.account || row.displayAccount)));
+  const extraRows = buildSelectorAccountRowsFromValues(accounts).filter((row) => {
+    const key = normalizeFilterText(row.account || row.displayAccount);
+    return key && !seen.has(key);
+  });
+  return [...rows, ...extraRows];
 };
 
-const normalizeOptionList = (payload: unknown, key: string): MonitoringSelectorOption[] => {
-  const seen = new Set<string>();
-  return extractMonitoringArrayPayload(payload, key)
-    .map(optionFromValue)
-    .filter((option): option is MonitoringSelectorOption => Boolean(option))
-    .filter((option) => {
-      const identity = option.value.toLowerCase();
-      if (seen.has(identity)) return false;
-      seen.add(identity);
-      return true;
-    });
+const mergeSelectorApiKeyRows = (
+  rows: MonitoringApiKeyRow[],
+  apiKeyHashes: Array<string | null | undefined> = [],
+  apiKeyDisplayMap: Map<string, ApiKeyDisplayInfo>
+) => {
+  const seen = new Set(rows.map((row) => normalizeFilterText(row.apiKeyHash)));
+  const extraRows = buildSelectorApiKeyRowsFromValues(apiKeyHashes, apiKeyDisplayMap).filter(
+    (row) => {
+      const key = normalizeFilterText(row.apiKeyHash);
+      return key && !seen.has(key);
+    }
+  );
+  return [...rows, ...extraRows];
 };
 
-export const normalizeMonitoringSelectors = (payload: unknown): MonitoringSelectorSet => {
-  const record = isMonitoringRecord(payload) ? payload : {};
-  const source = isMonitoringRecord(record.selectors)
-    ? record.selectors
-    : isMonitoringRecord(record.filter_options)
-      ? record.filter_options
-      : isMonitoringRecord(record.filterOptions)
-        ? record.filterOptions
-        : record;
+export const buildFilterOptionsFromSelector = (
+  options: MonitoringAnalyticsFilterOptions | undefined,
+  authMetaMap: Map<string, MonitoringAuthMeta>,
+  authFileMap: Map<string, CredentialInfo>,
+  sourceInfoMap: ReturnType<typeof buildSourceInfoMap>,
+  channelByAuthIndex: Map<string, MonitoringChannelMeta>,
+  apiKeyDisplayMap: Map<string, ApiKeyDisplayInfo>
+): MonitoringFilterOptions => {
+  const base = buildFilterOptionsFromAnalytics(
+    options,
+    authMetaMap,
+    authFileMap,
+    sourceInfoMap,
+    channelByAuthIndex,
+    apiKeyDisplayMap
+  );
+  if (!options) return base;
+
+  const accountRows = mergeSelectorAccountRows(base.accountRows, options.accounts);
+  const apiKeyRows = mergeSelectorApiKeyRows(
+    base.apiKeyRows,
+    options.api_key_hashes,
+    apiKeyDisplayMap
+  );
 
   return {
-    providers: normalizeOptionList(source.providers, 'providers'),
-    models: normalizeOptionList(source.models, 'models'),
-    accounts: normalizeOptionList(source.accounts, 'accounts'),
-    authIndices: normalizeOptionList(
-      source.authIndices ?? source.auth_indices ?? source.auth_indexes,
-      'auth_indices'
-    ),
-    apiKeyHashes: normalizeOptionList(
-      source.apiKeyHashes ?? source.api_key_hashes,
-      'api_key_hashes'
-    ),
-    sourceHashes: normalizeOptionList(source.sourceHashes ?? source.source_hashes, 'source_hashes'),
-    requestTypes: normalizeOptionList(source.requestTypes ?? source.request_types, 'request_types'),
-    headerTraceIds: normalizeOptionList(
-      source.headerTraceIds ?? source.header_trace_ids,
-      'header_trace_ids'
-    ),
+    ...base,
+    accountRows,
+    apiKeyRows,
+    providers: uniqueReadableValues([
+      ...base.providers,
+      ...(options.providers || []).map(normalizeProviderType),
+    ]),
+    models: uniqueReadableValues([
+      ...base.models,
+      ...(options.models || []),
+      ...accountRows.flatMap((row) => row.models.map((model) => model.model)),
+      ...apiKeyRows.flatMap((row) => row.models.map((model) => model.model)),
+    ]),
   };
 };
-
-export const selectorsFromAnalytics = (
-  analytics: MonitoringAnalyticsResponse | undefined
-): MonitoringSelectorSet =>
-  analytics?.filterOptions === undefined
-    ? EMPTY_SELECTORS
-    : normalizeMonitoringSelectors(analytics.filterOptions);

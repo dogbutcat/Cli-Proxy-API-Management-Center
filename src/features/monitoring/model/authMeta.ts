@@ -1,57 +1,44 @@
 import type { AuthFileItem } from '@/types/authFile';
-import { normalizeAuthIndex } from '@/utils/authIndex';
-import {
-  extractMonitoringHost,
-  isMonitoringRecord,
-  parseMonitoringBoolean,
-  readMonitoringString,
-} from './base';
+import { normalizeAuthIndex } from '@/utils/usage';
+import { buildLegacyAuthIndexAliases } from '../legacyAuthIndexAliases';
+import { extractHost, isRecord, parseBoolean, readString } from './base';
 import type { MonitoringAuthMeta, MonitoringChannelMeta } from './types';
-
-const readRecordString = (entry: Record<string, unknown>, keys: string[]): string => {
-  for (const key of keys) {
-    const value = readMonitoringString(entry[key]);
-    if (value) return value;
-  }
-  return '';
-};
-
-const readAuthTimestamp = (entry: AuthFileItem): string =>
-  readMonitoringString(
-    entry.updatedAt ?? entry['updated_at'] ?? entry.modified ?? entry['modtime']
-  );
 
 export const normalizeOpenAIChannel = (
   value: unknown,
   index: number
 ): MonitoringChannelMeta | null => {
-  if (!isMonitoringRecord(value)) return null;
+  if (!isRecord(value)) return null;
 
-  const name = readRecordString(value, ['name', 'id']) || `openai-${index + 1}`;
-  const baseUrl = readMonitoringString(value.baseUrl ?? value['base-url']);
+  const name = readString(value.name || value.id) || `openai-${index + 1}`;
+  const baseUrl = readString(value['base-url'] ?? value.baseUrl);
   if (!baseUrl) return null;
 
   const authIndices = new Set<string>();
   const providerAuthIndex = normalizeAuthIndex(
-    value.authIndex ?? value['auth-index'] ?? value['auth_index']
+    value['auth-index'] ?? value.authIndex ?? value['auth_index']
   );
-  if (providerAuthIndex) authIndices.add(providerAuthIndex);
+  if (providerAuthIndex) {
+    authIndices.add(providerAuthIndex);
+  }
 
   const apiKeyEntries = Array.isArray(value['api-key-entries']) ? value['api-key-entries'] : [];
   apiKeyEntries.forEach((entry) => {
-    if (!isMonitoringRecord(entry)) return;
+    if (!isRecord(entry)) return;
     const authIndex = normalizeAuthIndex(
-      entry.authIndex ?? entry['auth-index'] ?? entry['auth_index']
+      entry['auth-index'] ?? entry.authIndex ?? entry['auth_index']
     );
-    if (authIndex) authIndices.add(authIndex);
+    if (authIndex) {
+      authIndices.add(authIndex);
+    }
   });
 
   const modelNames = Array.isArray(value.models)
     ? value.models
         .map((item) => {
-          if (typeof item === 'string') return readMonitoringString(item);
-          if (!isMonitoringRecord(item)) return '';
-          return readRecordString(item, ['name', 'alias', 'id', 'model']);
+          if (typeof item === 'string') return readString(item);
+          if (!isRecord(item)) return '';
+          return readString(item.name ?? item.alias ?? item.id ?? item.model);
         })
         .filter(Boolean)
     : [];
@@ -60,50 +47,65 @@ export const normalizeOpenAIChannel = (
     key: `${name}:${index}`,
     name,
     baseUrl,
-    host: extractMonitoringHost(baseUrl),
-    disabled: parseMonitoringBoolean(value.disabled),
+    host: extractHost(baseUrl),
+    disabled: parseBoolean(value.disabled),
     authIndices: Array.from(authIndices),
     modelNames: Array.from(new Set(modelNames)),
   };
 };
 
-export const normalizeMonitoringAuthMeta = (entry: AuthFileItem): MonitoringAuthMeta | null => {
-  const authIndex = normalizeAuthIndex(entry.authIndex ?? entry.auth_index ?? entry['auth-index']);
+const readAuthTimestamp = (entry: AuthFileItem) =>
+  readString(entry['updated_at'] ?? entry.updatedAt ?? entry['modtime'] ?? entry.modified);
+
+const readAuthValue = (entry: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = readString(entry[key]);
+    if (value) return value;
+  }
+  return '';
+};
+
+const normalizeAuthMeta = (entry: AuthFileItem): MonitoringAuthMeta | null => {
+  const authIndex = normalizeAuthIndex(readAuthValue(entry, ['auth_index', 'authIndex', 'auth-index']));
   if (!authIndex) return null;
 
-  const record = entry as Record<string, unknown>;
-  const idToken = isMonitoringRecord(entry.id_token) ? entry.id_token : {};
   const label =
-    readRecordString(record, [
-      'displayName',
-      'display_name',
-      'label',
-      'name',
-      'email',
-      'account',
-    ]) || authIndex;
+    readAuthValue(entry, ['display_name', 'displayName']) ||
+    readAuthValue(entry, ['label']) ||
+    readAuthValue(entry, ['name']) ||
+    readAuthValue(entry, ['email']) ||
+    readAuthValue(entry, ['account']) ||
+    authIndex;
+
   const planType =
-    readRecordString(idToken, ['planType', 'plan_type']) ||
-    readRecordString(record, ['planType', 'plan_type']) ||
+    readAuthValue(
+      isRecord(entry.id_token) ? (entry.id_token as Record<string, unknown>) : {},
+      ['plan_type', 'planType']
+    ) ||
+    readAuthValue(entry, ['plan_type', 'planType']) ||
     '-';
+
+  const generatedName = readAuthValue(entry, [
+    'generated_name',
+    'generatedName',
+    'opencode_go_entry_name',
+    'opencodeGoEntryName',
+  ]);
+  const protocol = readAuthValue(entry, ['protocol']);
+  const keyName = readAuthValue(entry, ['key_name', 'keyName']);
 
   return {
     authIndex,
     label,
-    generatedName: readRecordString(record, [
-      'generatedName',
-      'generated_name',
-      'opencodeGoEntryName',
-      'opencode_go_entry_name',
-    ]),
-    protocol: readRecordString(record, ['protocol']),
-    keyName: readRecordString(record, ['keyName', 'key_name']),
-    account: readRecordString(record, ['account', 'email']) || label,
-    provider: readRecordString(record, ['provider', 'type']) || '-',
-    status: readRecordString(record, ['status']) || 'unknown',
-    disabled: parseMonitoringBoolean(entry.disabled),
-    unavailable: parseMonitoringBoolean(entry.unavailable),
-    runtimeOnly: parseMonitoringBoolean(entry.runtimeOnly ?? entry.runtime_only),
+    generatedName,
+    protocol,
+    keyName,
+    account: readAuthValue(entry, ['account']) || readAuthValue(entry, ['email']) || label,
+    provider: readAuthValue(entry, ['provider', 'type']) || '-',
+    status: readAuthValue(entry, ['status']) || 'unknown',
+    disabled: parseBoolean(entry.disabled),
+    unavailable: parseBoolean(entry.unavailable),
+    runtimeOnly: parseBoolean(entry.runtime_only ?? entry.runtimeOnly),
     planType,
     updatedAt: readAuthTimestamp(entry),
   };
@@ -114,9 +116,15 @@ export const buildMonitoringAuthMetaMap = (
 ): Map<string, MonitoringAuthMeta> => {
   const map = new Map<string, MonitoringAuthMeta>();
   authFiles.forEach((entry) => {
-    const normalized = normalizeMonitoringAuthMeta(entry);
+    const normalized = normalizeAuthMeta(entry);
     if (!normalized) return;
+
     map.set(normalized.authIndex, normalized);
+    buildLegacyAuthIndexAliases(entry).forEach((alias) => {
+      if (!map.has(alias)) {
+        map.set(alias, normalized);
+      }
+    });
   });
   return map;
 };

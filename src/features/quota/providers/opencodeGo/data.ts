@@ -64,7 +64,9 @@ const fetchOpenCodeGoQuota = async (
   const response = identity.entry
     ? await opencodeGoApi.refreshQuota(identity.entry)
     : await opencodeGoApi.getQuota();
-  const group = selectQuotaGroup(response.groups, identity.identityKey);
+  const group =
+    selectQuotaGroup(response.groups, identity.identityKey) ??
+    (identity.entry && response.groups.length === 1 ? response.groups[0] : null);
   if (!group) {
     if (fileDiagnostic) {
       return {

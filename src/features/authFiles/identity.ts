@@ -92,7 +92,16 @@ const readOpenCodeGoIdentityInput = (file: AuthFileItem): OpenCodeGoIdentityInpu
     aliases:
       existing.aliases ?? file.aliases ?? file.alias ?? file['model-alias'] ?? file.model_alias,
     provider: existing.provider ?? file.provider ?? file.type,
-    entry: existing.entry ?? file.authIndex ?? file['auth_index'] ?? file.name,
+    entry:
+      existing.entry ??
+      existing.entryId ??
+      existing.entry_id ??
+      file.opencodeGoEntryName ??
+      file['opencode_go_entry_name'] ??
+      file.id ??
+      file.authIndex ??
+      file['auth_index'] ??
+      file.name,
     workspace: existing.workspace ?? file.workspace ?? file.workspaceId ?? file['workspace_id'],
     project: existing.project ?? file.projectId ?? file['project_id'],
     protocol: existing.protocol ?? file.protocol ?? file.protocolType ?? file['protocol_type'],

@@ -401,61 +401,65 @@ export function SystemPage() {
           </div>
         </Card>
 
-        <Card
-          title={t('system_info.models_title')}
-          extra={
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => fetchModels({ forceRefresh: true })}
-              loading={modelsLoading}
-            >
-              {t('common.refresh')}
-            </Button>
-          }
-        >
-          <p className={styles.sectionDescription}>{t('system_info.models_desc')}</p>
-          {modelStatus && (
-            <div className={`status-badge ${modelStatus.type}`}>{modelStatus.message}</div>
-          )}
-          {modelsError && <div className="error-box">{modelsError}</div>}
-          {modelsLoading ? (
-            <div className="hint">{t('common.loading')}</div>
-          ) : models.length === 0 ? (
-            <div className="hint">{t('system_info.models_empty')}</div>
-          ) : (
-            <div className="item-list">
-              {groupedModels.map((group) => {
-                const iconSrc = getIconForCategory(group.id);
-                return (
-                  <div key={group.id} className="item-row">
-                    <div className="item-meta">
-                      <div className={styles.groupTitle}>
-                        {iconSrc && <img src={iconSrc} alt="" className={styles.groupIcon} />}
-                        <span className="item-title">{group.label}</span>
+        <div id="available-models">
+          <Card
+            title={t('system_info.models_title')}
+            extra={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => fetchModels({ forceRefresh: true })}
+                loading={modelsLoading}
+              >
+                {t('common.refresh')}
+              </Button>
+            }
+          >
+            <p className={styles.sectionDescription}>{t('system_info.models_desc')}</p>
+            {modelStatus && (
+              <div className={`status-badge ${modelStatus.type}`}>{modelStatus.message}</div>
+            )}
+            {modelsError && <div className="error-box">{modelsError}</div>}
+            {modelsLoading ? (
+              <div className="hint">{t('common.loading')}</div>
+            ) : models.length === 0 ? (
+              <div className="hint">{t('system_info.models_empty')}</div>
+            ) : (
+              <div className="item-list">
+                {groupedModels.map((group) => {
+                  const iconSrc = getIconForCategory(group.id);
+                  return (
+                    <div key={group.id} className="item-row">
+                      <div className="item-meta">
+                        <div className={styles.groupTitle}>
+                          {iconSrc && <img src={iconSrc} alt="" className={styles.groupIcon} />}
+                          <span className="item-title">{group.label}</span>
+                        </div>
+                        <div className="item-subtitle">
+                          {t('system_info.models_count', { count: group.items.length })}
+                        </div>
                       </div>
-                      <div className="item-subtitle">
-                        {t('system_info.models_count', { count: group.items.length })}
+                      <div className={styles.modelTags}>
+                        {group.items.map((model) => (
+                          <span
+                            key={`${model.name}-${model.alias ?? 'default'}`}
+                            className={styles.modelTag}
+                            title={model.description || ''}
+                          >
+                            <span className={styles.modelName}>{model.name}</span>
+                            {model.alias && (
+                              <span className={styles.modelAlias}>{model.alias}</span>
+                            )}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                    <div className={styles.modelTags}>
-                      {group.items.map((model) => (
-                        <span
-                          key={`${model.name}-${model.alias ?? 'default'}`}
-                          className={styles.modelTag}
-                          title={model.description || ''}
-                        >
-                          <span className={styles.modelName}>{model.name}</span>
-                          {model.alias && <span className={styles.modelAlias}>{model.alias}</span>}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </div>
 
         <Card title={t('system_info.clear_login_title')}>
           <p className={styles.sectionDescription}>{t('system_info.clear_login_desc')}</p>

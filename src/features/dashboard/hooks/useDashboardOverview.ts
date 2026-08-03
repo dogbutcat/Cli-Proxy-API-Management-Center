@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { authFilesApi } from '@/services/api';
+import type { DashboardSummary } from '@/services/api/usageService';
 import { useAuthStore, useConfigStore, useModelsStore } from '@/stores';
 import { useApiKeysForModels } from '@/hooks/useApiKeysForModels';
 import { useProviderRecentRequests } from '@/components/providers/hooks/useProviderRecentRequests';
@@ -84,6 +85,57 @@ const buildTrafficWindow = (bucketGroups: RecentRequestBucket[][]): TrafficWindo
   };
 };
 
+const formatBucketLabel = (bucketMs: number, widthMs: number): string | undefined => {
+  if (bucketMs <= 0 || widthMs <= 0) return undefined;
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  return `${formatter.format(new Date(bucketMs))}-${formatter.format(new Date(bucketMs + widthMs))}`;
+};
+
+export const buildTrafficWindowFromDashboardSummary = (
+  summary: DashboardSummary | null
+): TrafficWindow | null => {
+  if (!summary) return null;
+  const bucketWidthMs = summary.todayRequestHealthTimeline.bucketMs;
+  const healthBuckets = summary.todayRequestHealthTimeline.points
+    .filter((point) => !point.future)
+    .map((point) => ({
+      time: formatBucketLabel(point.bucketMs, bucketWidthMs),
+      success: point.success,
+      failed: point.failure,
+    }));
+
+  if (healthBuckets.length > 0) {
+    return buildTrafficWindow([healthBuckets]);
+  }
+
+  if (summary.trafficTimeline.length > 0) {
+    return buildTrafficWindow([
+      summary.trafficTimeline.map((point) => ({
+        time: formatBucketLabel(point.bucketMs, 60 * 60 * 1000),
+        success: point.success,
+        failed: point.failure,
+      })),
+    ]);
+  }
+
+  if (summary.today.totalCalls > 0) {
+    return buildTrafficWindow([
+      [
+        {
+          success: summary.today.successCalls,
+          failed: summary.today.failureCalls,
+        },
+      ],
+    ]);
+  }
+
+  return EMPTY_TRAFFIC;
+};
+
 interface ProviderAccumulator {
   credentials: number;
   success: number;
@@ -97,6 +149,77 @@ const createAccumulator = (): ProviderAccumulator => ({
   failure: 0,
   bucketGroups: [],
 });
+
+export const buildProviderTrafficFromDashboardSummary = (
+  summary: DashboardSummary | null
+): ProviderTraffic[] => {
+  if (!summary) return [];
+
+  if (summary.providerActivity.length > 0) {
+    return summary.providerActivity
+      .map((row) => ({
+        id: (row.provider || 'unknown').trim().toLowerCase(),
+        credentials: 0,
+        success: row.successCalls,
+        failure: row.failureCalls,
+        total: row.calls,
+        successRate: row.calls > 0 ? (row.successCalls / row.calls) * 100 : null,
+        buckets: [],
+      }))
+      .sort(
+        (a, b) => b.total - a.total || b.credentials - a.credentials || a.id.localeCompare(b.id)
+      );
+  }
+
+  const byProvider = new Map<
+    string,
+    {
+      credentialIds: Set<string>;
+      success: number;
+      failure: number;
+    }
+  >();
+
+  summary.channelHealth.forEach((channel) => {
+    const providerId = (channel.authProviderSnapshot || 'unknown').trim().toLowerCase();
+    const accumulator = byProvider.get(providerId) ?? {
+      credentialIds: new Set<string>(),
+      success: 0,
+      failure: 0,
+    };
+    const credentialId =
+      channel.authIndex || channel.sourceHash || channel.source || channel.authLabelSnapshot;
+    if (credentialId) {
+      accumulator.credentialIds.add(credentialId);
+    }
+    accumulator.failure += channel.failures;
+    accumulator.success += Math.max(0, channel.calls - channel.failures);
+    byProvider.set(providerId, accumulator);
+  });
+
+  if (byProvider.size === 0 && summary.today.totalCalls > 0) {
+    byProvider.set('unknown', {
+      credentialIds: new Set<string>(),
+      success: summary.today.successCalls,
+      failure: summary.today.failureCalls,
+    });
+  }
+
+  return Array.from(byProvider.entries())
+    .map(([id, accumulator]) => {
+      const total = accumulator.success + accumulator.failure;
+      return {
+        id,
+        credentials: accumulator.credentialIds.size,
+        success: accumulator.success,
+        failure: accumulator.failure,
+        total,
+        successRate: total > 0 ? (accumulator.success / total) * 100 : null,
+        buckets: [],
+      };
+    })
+    .sort((a, b) => b.total - a.total || b.credentials - a.credentials || a.id.localeCompare(b.id));
+};
 
 export const getProviderKeyCounts = (config: Config) => ({
   gemini: config.geminiApiKeys?.length ?? 0,
@@ -194,6 +317,14 @@ export function useDashboardOverview() {
   const providerKeyCounts = useMemo(() => (config ? getProviderKeyCounts(config) : null), [config]);
 
   const { traffic, providers } = useMemo(() => {
+    const usageTraffic = buildTrafficWindowFromDashboardSummary(usage.summary);
+    if (usageTraffic) {
+      return {
+        traffic: usageTraffic,
+        providers: buildProviderTrafficFromDashboardSummary(usage.summary),
+      };
+    }
+
     const accumulators = new Map<string, ProviderAccumulator>();
     const allBucketGroups: RecentRequestBucket[][] = [];
     const apiKeysFromUsage = new Set<string>();
@@ -265,7 +396,7 @@ export function useDashboardOverview() {
       traffic: buildTrafficWindow(allBucketGroups),
       providers: providerRows,
     };
-  }, [usageByProvider, authFiles]);
+  }, [usage.summary, usageByProvider, authFiles]);
 
   const credentials = useMemo<CredentialHealth | null>(() => {
     if (!authFiles) return null;

@@ -66,6 +66,9 @@ const parseOptionalPriceNumber = (value: string): number | undefined => {
 };
 
 export const buildModelPriceFromDraft = (draft: ModelPricesDraft): ModelPrice => ({
+  prompt: parseOptionalPriceNumber(draft.input) ?? 0,
+  completion: parseOptionalPriceNumber(draft.output) ?? 0,
+  cache: parseOptionalPriceNumber(draft.cached) ?? 0,
   input: parseOptionalPriceNumber(draft.input),
   output: parseOptionalPriceNumber(draft.output),
   cached: parseOptionalPriceNumber(draft.cached),

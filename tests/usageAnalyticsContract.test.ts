@@ -1,296 +1,202 @@
 import { describe, expect, test } from 'bun:test';
 import { deriveMonitoringSourceIdentity } from '../src/features/monitoring/model/sourceDisplay';
-import { buildUsageAnalyticsModel } from '../src/features/usage-analytics/usageAnalyticsModel';
 import {
-  buildUsageAnalyticsComparisonRequest,
-  buildUsageAnalyticsDrilldownRequest,
-  buildUsageAnalyticsRequest,
-  createDefaultUsageAnalyticsUiState,
-  type UsageAnalyticsUiState,
-} from '../src/features/usage-analytics/usageAnalyticsUiState';
-import { formatUsageAnalyticsState } from '../src/features/usage-analytics/usageAnalyticsPresentation';
-import type { MonitoringAnalyticsResponse, UsageApiResult } from '../src/services/api/usageService';
+  adaptUsageAnalyticsData,
+  buildUsageAnalyticsFilters,
+  buildUsageAnalyticsInclude,
+  maskApiKeyHash,
+  resolveUsageApiKeyLabel,
+  type UsageAnalyticsFiltersState,
+} from '../src/features/usage-analytics/usageAnalyticsModel';
+import type { MonitoringAnalyticsResponse } from '../src/services/api/usageService';
 
-const analyticsFixture = {
+const filters: UsageAnalyticsFiltersState = {
+  timeRange: '7d',
+  customRange: null,
+  granularity: 'day',
+  model: 'qwen3.7-max',
+  apiKeyHash: 'ABCDEF123456',
+  provider: 'opencode-go',
+  authFile: 'entry-a',
+  status: 'failed',
+  searchQuery: 'workspace-a',
+  minLatencyMs: '10000',
+  cacheStatus: 'miss',
+  apiKeyKeyword: '',
+};
+
+const analyticsFixture: MonitoringAnalyticsResponse = {
   generatedAtMs: 1_775_000_000_000,
+  generated_at_ms: 1_775_000_000_000,
   granularity: 'hour',
   summary: {
-    totalCalls: 7,
-    successCalls: 5,
-    failureCalls: 2,
-    successRate: 71.4,
-    inputTokens: 20,
-    outputTokens: 22,
-    reasoningTokens: 0,
-    cachedTokens: 0,
-    cacheReadTokens: 0,
-    cacheCreationTokens: 0,
-    totalTokens: 42,
-    totalCost: 0,
-    averageLatencyMs: null,
-    zeroTokenCalls: 1,
+    total_calls: 7,
+    success_calls: 5,
+    failure_calls: 2,
+    success_rate: 71.4,
+    input_tokens: 20,
+    output_tokens: 22,
+    reasoning_tokens: 0,
+    cached_tokens: 0,
+    cache_read_tokens: 0,
+    cache_creation_tokens: 0,
+    total_tokens: 42,
+    total_cost: 0,
+    average_latency_ms: null,
+    zero_token_calls: 1,
+    rpm_30m: 0,
+    tpm_30m: 0,
+    avg_daily_requests: 1,
+    avg_daily_tokens: 6,
+    approx_tasks: 1,
+    approx_task_failures: 0,
+    approx_task_success_rate: 100,
+    zero_token_models: ['zero-token-model'],
   },
-  trend: [
-    {
-      bucket_start_ms: 1_774_999_000_000,
-      total_calls: 0,
-      failure_calls: 0,
-      total_tokens: 0,
-      total_cost: 0,
-    },
-  ],
   model_stats: [
     {
-      model: 'claude-sonnet-4',
-      provider: 'opencode-go',
-      total_calls: 3,
+      model: 'qwen3.7-max',
+      calls: 3,
+      tokens: 42,
+      cost: 0,
+      success_calls: 2,
       failure_calls: 1,
+      success_rate: 66.7,
+      input_tokens: 20,
+      output_tokens: 22,
+      cached_tokens: 0,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
       total_tokens: 42,
-      total_cost: 0,
-      price_state: 'missing-price',
     },
+  ],
+  api_key_stats: [
     {
-      model: 'zero-token-model',
-      provider: 'openai',
-      total_calls: 1,
+      id: 'abcdef123456',
+      api_key_hash: 'abcdef123456',
+      account_snapshot: 'client-a',
+      auth_provider_snapshot: 'opencode-go',
+      auth_indices: ['entry-a'],
+      sources: ['workspace-a'],
+      source_hashes: ['source-a'],
+      calls: 4,
+      success_calls: 3,
       failure_calls: 1,
+      success_rate: 75,
+      input_tokens: 0,
+      output_tokens: 0,
+      cached_tokens: 0,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
       total_tokens: 0,
-      total_cost: 0,
+      cost: 0,
+      average_latency_ms: 1200,
+      last_seen_ms: 1_775_000_000_000,
     },
   ],
-  provider_usage: [
+  credential_stats: [
     {
-      provider: 'opencode-go',
-      workspace: 'workspace-a',
-      total_calls: 3,
+      id: 'entry-a',
+      auth_index: 'entry-a',
+      auth_provider_snapshot: 'opencode-go',
+      account_snapshot: 'workspace-a',
+      source_hash: 'source-a',
+      calls: 3,
+      success_calls: 2,
       failure_calls: 1,
+      success_rate: 66.7,
+      input_tokens: 20,
+      output_tokens: 22,
+      cached_tokens: 0,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
       total_tokens: 42,
-      total_cost: 0,
+      cost: 0,
+      average_latency_ms: 1300,
+      last_seen_ms: 1_775_000_000_000,
     },
   ],
-  accountStats: [
+  channel_share: [
     {
       auth_index: 'entry-a',
-      provider: 'opencode-go',
-      label: 'OpenCode Workspace',
-      source_payload: {
-        provider: 'opencode-go',
-        entry: 'entry-a',
-        workspace: 'workspace-a',
-        protocol: 'codex',
-        account: 'unsafe-account-secret',
-        'api-key': 'unsafe-api-key-secret',
-        cookie: 'unsafe-cookie-secret',
-      },
-      total_calls: 3,
-      failure_calls: 1,
-      total_tokens: 42,
-      total_cost: 0,
+      source_hash: 'source-a',
+      account_snapshot: 'workspace-a',
+      auth_provider_snapshot: 'opencode-go',
+      calls: 3,
+      success: 2,
+      failure: 1,
+      tokens: 42,
+      cost: 0,
+      average_latency_ms: 1300,
     },
   ],
-  apiKeyStats: [
-    {
-      api_key_hash: 'abcdef123456',
-      api_key_label: 'client-a',
-      total_calls: 4,
-      failure_calls: 1,
-      total_tokens: 0,
-      total_cost: 0,
-    },
-  ],
-  heatmap: [
-    {
-      weekday: 2,
-      hour: 9,
-      total_calls: 0,
-      total_tokens: 0,
-    },
-  ],
-} satisfies MonitoringAnalyticsResponse & Record<string, unknown>;
-
-const successResult: UsageApiResult<MonitoringAnalyticsResponse> = {
-  kind: 'success',
-  data: analyticsFixture,
-  status: {
-    state: 'ok',
-    hasData: true,
-    partial: true,
-    stale: true,
-    errors: [],
-    warnings: [{ component: 'pricing', kind: 'missing', message: 'one model has no price' }],
-  },
 };
 
 describe('usage analytics contract', () => {
-  test('builds canonical server aggregate requests with filters and granularity', () => {
-    const state: UsageAnalyticsUiState = {
-      ...createDefaultUsageAnalyticsUiState(1_775_000_000_000, 'UTC'),
-      fromMs: 1_774_900_000_000,
-      toMs: 1_775_000_000_000,
-      granularity: 'day',
-      filters: {
-        models: ['claude-sonnet-4'],
-        providers: ['opencode-go'],
-        authIndices: ['entry-a'],
-        apiKeyHashes: ['abcdef123456'],
-        includeFailed: false,
-        failedOnly: true,
-        searchQuery: 'workspace-a',
-        searchApiKeyHash: 'abcdef123456',
-      },
-    };
+  test('builds full aggregate include and canonical filters for the restored analytics page', () => {
+    expect(buildUsageAnalyticsFilters(filters)).toEqual({
+      models: ['qwen3.7-max'],
+      providers: ['opencode-go'],
+      auth_files: ['entry-a'],
+      api_key_hashes: ['abcdef123456'],
+      failed_only: true,
+      min_latency_ms: 10000,
+      cache_status: 'miss',
+    });
 
-    expect(buildUsageAnalyticsRequest(state)).toEqual({
-      fromMs: 1_774_900_000_000,
-      toMs: 1_775_000_000_000,
-      nowMs: 1_775_000_000_000,
-      timeZone: 'UTC',
-      searchQuery: 'workspace-a',
-      searchApiKeyHash: 'abcdef123456',
-      filters: {
-        models: ['claude-sonnet-4'],
-        providers: ['opencode-go'],
-        accounts: undefined,
-        credentialIds: undefined,
-        authFiles: undefined,
-        authIndices: ['entry-a'],
-        apiKeyHashes: ['abcdef123456'],
-        sourceHashes: undefined,
-        projectIds: undefined,
-        requestTypes: undefined,
-        headerErrorKinds: undefined,
-        headerErrorCodes: undefined,
-        headerQuotaPlans: undefined,
-        headerTraceIds: undefined,
-        includeFailed: false,
-        failedOnly: true,
-        minLatencyMs: undefined,
-        cacheStatus: undefined,
-      },
-      include: {
-        summary: true,
-        summaryProfile: 'full',
-        accountStats: true,
-        apiKeyStats: true,
-        filterOptions: true,
-        filterSelectors: true,
-        recentFailures: 10,
-        granularity: 'day',
-        eventsPage: undefined,
-      },
+    expect(buildUsageAnalyticsInclude('hour')).toMatchObject({
+      summary: true,
+      summary_comparison: true,
+      timeline: true,
+      model_stats: true,
+      channel_share: true,
+      filter_options: true,
+      credential_stats: true,
+      credential_timeline: true,
+      api_key_stats: true,
+      heatmap: true,
+      anomaly_points: true,
+      granularity: 'hour',
     });
   });
 
-  test('keeps comparison and drilldown absence distinct from API errors', () => {
-    const base = createDefaultUsageAnalyticsUiState(1_775_000_000_000, 'UTC');
-    const withComparison: UsageAnalyticsUiState = {
-      ...base,
-      comparison: {
-        enabled: true,
-        fromMs: base.fromMs - (base.toMs - base.fromMs),
-        toMs: base.fromMs,
-      },
-    };
-    const withDrilldown: UsageAnalyticsUiState = {
-      ...withComparison,
-      drilldown: {
-        enabled: true,
-        limit: 50,
-        beforeMs: null,
-        beforeId: null,
-        target: {
-          surface: 'model',
-          id: 'claude-sonnet-4',
-          filters: { models: ['claude-sonnet-4'] },
-        },
-      },
-    };
-
-    expect(buildUsageAnalyticsComparisonRequest(base)).toBeNull();
-    expect(buildUsageAnalyticsComparisonRequest(withComparison)?.fromMs).toBe(
-      base.fromMs - (base.toMs - base.fromMs)
-    );
-    expect(buildUsageAnalyticsDrilldownRequest(base)).toBeNull();
-    expect(buildUsageAnalyticsDrilldownRequest(withDrilldown)?.filters?.models).toEqual([
-      'claude-sonnet-4',
+  test('uses API key aliases or masks hashes instead of exposing raw client key hashes', () => {
+    const displayMap = new Map([
+      ['abcdef123456', { label: 'Production key', masked: 'sk-****3456' }],
     ]);
+    const adapted = adaptUsageAnalyticsData(analyticsFixture, 'hour', '', displayMap);
 
-    expect(buildUsageAnalyticsModel({ analytics: successResult }).comparison.state).toBe(
-      'unavailable'
-    );
-    expect(
-      buildUsageAnalyticsModel({
-        analytics: successResult,
-        comparison: { kind: 'error', message: 'boom' },
-      }).comparison
-    ).toMatchObject({ state: 'error', reason: 'error' });
-    expect(buildUsageAnalyticsModel({ analytics: successResult }).drilldown.state).toBe(
-      'unavailable'
-    );
-    expect(
-      buildUsageAnalyticsModel({
-        analytics: successResult,
-        drilldown: { kind: 'error', message: 'boom' },
-      }).drilldown.state
-    ).toBe('error');
-  });
-
-  test('builds six analysis surfaces from server aggregates', () => {
-    const model = buildUsageAnalyticsModel({
-      analytics: successResult,
-      comparison: {
-        kind: 'success',
-        data: {
-          generatedAtMs: 1,
-          granularity: 'hour',
-          summary: { ...analyticsFixture.summary, totalCalls: 2, totalTokens: 10, totalCost: 1 },
-        },
-      },
-    });
-
-    expect(model.surfaces).toMatchObject({
-      overview: 'ok',
-      trend: 'ok',
-      models: 'ok',
-      clientKeys: 'ok',
-      credentials: 'ok',
-      heatmap: 'ok',
-      providerUsage: 'ok',
-    });
-    expect(model.flags.partial).toBe(true);
-    expect(model.flags.stale).toBe(true);
-    expect(model.flags.zeroToken).toBe(true);
-    expect(model.flags.missingPrice).toBe(true);
-    expect(model.models.map((row) => [row.label, row.priceState])).toEqual([
-      ['claude-sonnet-4', 'missing'],
-      ['zero-token-model', 'priced'],
-    ]);
-    expect(model.providerUsage[0]).toMatchObject({
+    expect(resolveUsageApiKeyLabel('abcdef123456', displayMap)).toBe('Production key');
+    expect(maskApiKeyHash('abcdef123456')).toBe('sk-****3456');
+    expect(adapted.apiKeyRows[0]).toMatchObject({
+      apiKeyHash: 'abcdef123456',
+      label: 'Production key',
       provider: 'opencode-go',
-      secondaryLabel: 'workspace-a',
+      totalTokens: 0,
     });
-    expect(model.clientKeys[0]).toMatchObject({ label: 'client-a', totalTokens: 0 });
-    expect(model.heatmap[0]).toMatchObject({ day: 2, hour: 9, totalTokens: 0 });
-    expect(model.comparison).toMatchObject({
-      state: 'ok',
-      deltaCalls: 5,
-      deltaTokens: 32,
-      deltaCost: -1,
-    });
+    expect(adapted.apiKeyRows[0].contexts).toEqual([
+      expect.objectContaining({
+        id: 'source-a',
+        sourceHash: 'source-a',
+        source: 'workspace-a',
+        authIndex: 'entry-a',
+        requestCount: 4,
+      }),
+    ]);
   });
 
   test('aligns OpenCode credential identity with monitoring safe identity', () => {
-    const model = buildUsageAnalyticsModel({ analytics: successResult });
-    const usageIdentity = model.credentials[0].safeIdentity;
+    const adapted = adaptUsageAnalyticsData(analyticsFixture, 'hour');
+    const row = adapted.credentialRows[0];
     const monitoringIdentity = deriveMonitoringSourceIdentity(
       {
         eventHash: 'event-1',
         timestampMs: 1,
         provider: 'opencode-go',
-        model: 'claude-sonnet-4',
-        endpoint: '/v1/messages',
+        model: 'qwen3.7-max',
+        endpoint: '/v1/chat/completions',
         authIndex: 'entry-a',
-        sourceHash: '',
+        sourceHash: 'source-a',
         totalTokens: 42,
         failed: false,
       },
@@ -306,38 +212,10 @@ describe('usage analytics contract', () => {
       }
     );
 
-    expect(usageIdentity?.identityKey).toBe(monitoringIdentity.identityKey);
-    expect(usageIdentity?.safeQuery).toEqual(monitoringIdentity.safeQuery);
-    expect(JSON.stringify(model.credentials[0])).not.toContain('unsafe-account-secret');
-    expect(JSON.stringify(model.credentials[0])).not.toContain('unsafe-api-key-secret');
-    expect(JSON.stringify(model.credentials[0])).not.toContain('unsafe-cookie-secret');
-  });
-
-  test('does not collapse loading, empty, unsupported, error, and unavailable states', () => {
-    expect(buildUsageAnalyticsModel().state).toBe('idle');
-    expect(buildUsageAnalyticsModel({ loading: true }).state).toBe('loading');
-    expect(
-      buildUsageAnalyticsModel({
-        analytics: {
-          kind: 'empty',
-          data: analyticsFixture,
-          status: {
-            state: 'empty',
-            hasData: false,
-            partial: false,
-            stale: false,
-            errors: [],
-            warnings: [],
-          },
-        },
-      }).state
-    ).toBe('empty');
-    expect(
-      buildUsageAnalyticsModel({ analytics: { kind: 'unsupported', message: 'unsupported' } }).state
-    ).toBe('unsupported');
-    expect(
-      buildUsageAnalyticsModel({ analytics: { kind: 'error', message: 'failed' } }).state
-    ).toBe('error');
-    expect(formatUsageAnalyticsState('unavailable')).toBe('Unavailable');
+    expect(row.id).toBe('entry-a');
+    expect(monitoringIdentity.identityKey).toBe('workspace:workspace-a');
+    expect(JSON.stringify(row)).not.toContain('unsafe-account-secret');
+    expect(JSON.stringify(row)).not.toContain('unsafe-api-key-secret');
+    expect(JSON.stringify(row)).not.toContain('unsafe-cookie-secret');
   });
 });

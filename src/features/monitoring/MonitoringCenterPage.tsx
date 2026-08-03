@@ -1,477 +1,1761 @@
-import { useMemo, type CSSProperties } from 'react';
 import {
-  IconAlertTriangle,
-  IconDownload,
-  IconFilterAll,
-  IconKey,
-  IconRefreshCw,
-  IconScrollText,
-  IconSatellite,
-} from '@/components/ui/icons';
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from 'react';
+import { useLocation } from 'react-router-dom';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
+import {
+  buildRealtimeMonitorRows,
+  getRangeBounds,
+  type MonitoringAccountRow,
+  type MonitoringCustomTimeRange,
+  type MonitoringStatusTone,
+  type MonitoringTimeRange,
+  useMonitoringData,
+} from '@/features/monitoring/hooks/useMonitoringData';
+import {
+  ACCOUNT_OVERVIEW_CARD_PAGE_SIZE_OPTIONS,
+  ACCOUNT_OVERVIEW_TABLE_PAGE_SIZE_OPTIONS,
+  buildEmptyMonitoringStatusData,
+  buildMonitoringAccountAuthStateMap,
+  buildMonitoringAccountStatusDataMap,
+  normalizeAccountOverviewPageSize,
+  resolveMonitoringStatusRangeBounds,
+  shouldClampAccountOverviewPage,
+  shouldResetAccountOverviewPage,
+  sortAccountRows,
+  readAccountOverviewUiState,
+  writeAccountOverviewUiState,
+  type AccountDisplayMode,
+  type AccountOverviewPageResetState,
+  type AccountSortKey,
+  type AccountSortState,
+  type MonitoringAccountOverviewMode,
+} from '@/features/monitoring/accountOverviewState';
+import { buildMonitoringAccountQuotaTargetsByAccount } from '@/features/monitoring/accountOverviewQuotaTargets';
+import {
+  AccountExpandedDetails,
+  AccountOverviewCard,
+} from '@/features/monitoring/components/AccountOverviewCard';
+import {
+  AccountOverviewPanel,
+  AccountOverviewPanelActions,
+} from '@/features/monitoring/components/AccountOverviewPanel';
+import {
+  ApiKeySummaryPanel,
+  ApiKeySummaryPanelActions,
+} from '@/features/monitoring/components/ApiKeySummaryPanel';
+import { MonitoringDataPanel } from '@/features/monitoring/components/MonitoringDataPanel';
+import { MonitoringActionBar } from '@/features/monitoring/components/MonitoringActionBar';
+import { MonitoringCustomRangeModal } from '@/features/monitoring/components/MonitoringCustomRangeModal';
+import { MonitoringFiltersPanel } from '@/features/monitoring/components/MonitoringFiltersPanel';
+import {
+  UsageImportProgressModal,
+  type UsageImportProgressStatus,
+} from '@/features/monitoring/components/UsageImportProgressModal';
+import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
+import { IconInbox } from '@/components/ui/icons';
+import {
+  MonitoringStatusHeader,
+  MonitoringStatusSummary,
+} from '@/features/monitoring/components/MonitoringStatusHeader';
+import { MonitoringSummarySection } from '@/features/monitoring/components/MonitoringSummarySection';
+import type { MonitoringTab } from '@/features/monitoring/components/MonitoringTabsBar';
+import {
+  RealtimeEventsPanel,
+  RealtimeEventsPanelActions,
+} from '@/features/monitoring/components/RealtimeEventsPanel';
+import { type AccountQuotaState } from '@/features/monitoring/components/accountOverviewPresentation';
+import {
+  buildAccountOptions,
+  buildAccountOverviewColumns,
+  buildAccountSortOptions,
+  buildApiKeyOptionsFromRows,
+  buildApiKeyOverviewColumns,
+  buildAuthFilesByAuthIndex,
+  buildAccountQuotaRefreshFailureEntry,
+  buildObservedCodexAccountQuotaEntry,
+  buildChannelOptionsFromValues,
+  buildMonitoringInitialStateFromQuery,
+  buildModelOptionsFromValues,
+  buildPaginationState,
+  buildPrimarySummaryCards,
+  buildProviderOptionsFromValues,
+  buildRealtimeLogRows,
+  buildSecondarySummaryCards,
+  buildStatusOptions,
+  formatAccountOverviewScopeText,
+  getCurrentInputValue,
+  getTodayStartInputValue,
+  isUsageImportFile,
+  mergeObservedAccountQuotaState,
+  parseDateTimeLocalValue,
+  requestAccountQuota,
+  type FocusSnapshot,
+  type StatusFilter,
+} from '@/features/monitoring/model/monitoringCenterPageModel';
+import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
+import {
+  monitoringAnalyticsApi,
+  usageServiceApi,
+  type UsageHeaderSnapshot,
+  type UsageImportResponse,
+  type UsageImportSession,
+} from '@/services/api/usageService';
+import {
+  buildUsageImportSessionFingerprintKey,
+  chooseUsageImportUploadStrategy,
+  importUsageFile as importUsageFileWithSession,
+  type UsageImportUploadDecision,
+  type UsageImportUploadProgress,
+} from '@/features/monitoring/services/usageImportSession';
+import {
+  readMonitoringCenterUiState,
+  writeMonitoringCenterUiState,
+  type MonitoringDataTab,
+} from '@/features/monitoring/monitoringCenterUiState';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { formatCompactNumber, formatPercent, formatUnixTimestamp } from '@/utils/format';
-import type { AuthFileItem } from '@/types/authFile';
+import { useInterval } from '@/hooks/useInterval';
+import { useRequestMonitoringAvailability } from '@/hooks/useRequestMonitoringAvailability';
+import { isFileLogsAvailable } from '@/features/logs/logFeatureAvailability';
+import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
+import { formatFileSize } from '@/utils/format';
+import type { StatusBarData } from '@/utils/recentRequests';
+import { downloadBlob } from '@/utils/download';
+import { sha256Hex } from '@/utils/apiKeyHash';
+import { formatCompactNumber } from '@/utils/usage';
 import {
-  buildMonitoringExportQuery,
-  readNextMonitoringCursor,
-} from './model/monitoringCenterPageModel';
-import { buildMonitoringExportPath } from './model/sourceDisplay';
-import {
-  MONITORING_TABS,
-  setMonitoringDensity,
-  setMonitoringFilters,
-  setMonitoringTab,
-  type MonitoringDensity,
-  type MonitoringTab,
-} from './monitoringCenterUiState';
-import { useMonitoringData } from './hooks/useMonitoringData';
+  buildUsageHeaderSnapshotLookup,
+  getHighConfidenceUsageHeaderSnapshotForAuthFile,
+} from '@/utils/usageHeaderSnapshots';
+import { buildSourceInfoMap, buildSourceProviderStateMap } from '@/utils/sourceResolver';
+import styles from './MonitoringCenterPage.module.scss';
 
-const DASH = '-';
+export { AccountExpandedDetails, AccountOverviewCard };
 
-const styles = {
-  page: {
-    width: '100%',
-    maxWidth: 1180,
-    margin: '0 auto',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 20,
-  },
-  header: {
-    display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) auto',
-    gap: 16,
-    alignItems: 'end',
-    padding: '20px 0 4px',
-  },
-  title: {
-    margin: 0,
-    fontSize: 'clamp(30px, 4vw, 48px)',
-    lineHeight: 1.04,
-    color: 'var(--text-primary)',
-  },
-  subtitle: {
-    margin: '10px 0 0',
-    color: 'var(--text-secondary)',
-    maxWidth: 760,
-  },
-  toolbar: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 10,
-    alignItems: 'center',
-    padding: 12,
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    background: 'var(--bg-secondary)',
-  },
-  input: {
-    minWidth: 220,
-    flex: '1 1 240px',
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    padding: '10px 12px',
-    background: 'var(--bg-primary)',
-    color: 'var(--text-primary)',
-  },
-  select: {
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    padding: '10px 12px',
-    background: 'var(--bg-primary)',
-    color: 'var(--text-primary)',
-  },
-  button: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 7,
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    padding: '10px 12px',
-    background: 'var(--bg-primary)',
-    color: 'var(--text-primary)',
-    cursor: 'pointer',
-    textDecoration: 'none',
-  },
-  tabs: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-    gap: 8,
-  },
-  tabButton: {
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    padding: '12px 14px',
-    background: 'var(--bg-secondary)',
-    color: 'var(--text-secondary)',
-    cursor: 'pointer',
-    textAlign: 'left',
-  },
-  activeTab: {
-    borderColor: 'var(--accent-color)',
-    color: 'var(--text-primary)',
-    boxShadow: 'inset 0 -2px 0 var(--accent-color)',
-  },
-  summaryGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-    gap: 12,
-  },
-  metric: {
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    padding: 14,
-    background: 'var(--bg-secondary)',
-  },
-  metricLabel: {
-    margin: 0,
-    color: 'var(--text-secondary)',
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: '0.04em',
-  },
-  metricValue: {
-    margin: '8px 0 0',
-    fontSize: 24,
-    color: 'var(--text-primary)',
-    fontVariantNumeric: 'tabular-nums',
-  },
-  tableWrap: {
-    overflowX: 'auto',
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    background: 'var(--bg-secondary)',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    minWidth: 760,
-  },
-  th: {
-    textAlign: 'left',
-    padding: '11px 12px',
-    color: 'var(--text-secondary)',
-    borderBottom: '1px solid var(--border-color)',
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: '0.04em',
-  },
-  td: {
-    padding: '12px',
-    borderBottom: '1px solid var(--border-color)',
-    color: 'var(--text-primary)',
-    verticalAlign: 'top',
-  },
-  mono: {
-    fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)',
-    fontSize: 12,
-  },
-  statusLine: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 10,
-    alignItems: 'center',
-    color: 'var(--text-secondary)',
-    fontSize: 13,
-  },
-  issue: {
-    display: 'flex',
-    gap: 8,
-    alignItems: 'center',
-    padding: '10px 12px',
-    borderRadius: 8,
-    border: '1px solid color-mix(in srgb, var(--amber-color, #c78100) 45%, transparent)',
-    background: 'color-mix(in srgb, var(--amber-color, #c78100) 10%, transparent)',
-    color: 'var(--text-primary)',
-  },
-} satisfies Record<string, CSSProperties>;
-
-const tabLabels: Record<MonitoringTab, string> = {
-  accounts: 'Accounts',
-  keys: 'Keys',
-  realtime: 'Realtime',
+const DEFAULT_ACCOUNT_PAGE_SIZE = ACCOUNT_OVERVIEW_TABLE_PAGE_SIZE_OPTIONS[0];
+const MAX_USAGE_IMPORT_FILE_SIZE = 64 * 1024 * 1024;
+const EMPTY_STATUS_BAR_DATA: StatusBarData = {
+  blocks: [],
+  blockDetails: [],
+  successRate: 100,
+  totalSuccess: 0,
+  totalFailure: 0,
 };
 
-type MonitoringCenterPageProps = {
-  authFiles?: AuthFileItem[];
+type UsageImportProgressState = {
+  open: boolean;
+  status: UsageImportProgressStatus;
+  file: File | null;
+  decision: UsageImportUploadDecision | null;
+  progress: UsageImportUploadProgress | null;
+  session: UsageImportSession | null;
+  error: string;
 };
 
-const formatLatency = (value: number | null): string =>
-  value === null ? DASH : `${Math.round(value).toLocaleString()} ms`;
+const INITIAL_USAGE_IMPORT_PROGRESS_STATE: UsageImportProgressState = {
+  open: false,
+  status: 'idle',
+  file: null,
+  decision: null,
+  progress: null,
+  session: null,
+  error: '',
+};
 
-const formatMoney = (value: number): string =>
-  new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: value >= 1 ? 2 : 4,
-  }).format(value);
+const shortLabel = (t: TFunction, shortKey: string, fallbackKey: string) => {
+  const fallback = t(fallbackKey);
+  const label = t(shortKey, { defaultValue: fallback });
+  return label === shortKey ? fallback : label;
+};
 
-const mergeStyle = (...items: CSSProperties[]): CSSProperties => Object.assign({}, ...items);
+const isUsageImportAbortError = (error: unknown, signal: AbortSignal): boolean => {
+  if (signal.aborted) return true;
+  if (!(error instanceof Error)) return false;
+  return error.name === 'AbortError' || error.name === 'CanceledError';
+};
 
-export function MonitoringCenterPage({ authFiles = [] }: MonitoringCenterPageProps) {
-  const {
-    uiState,
-    setUiState,
-    usage,
-    analytics,
-    accountRows,
-    apiKeyRows,
-    eventRows,
-    loadNextPage,
-  } = useMonitoringData({ authFiles });
-
-  useHeaderRefresh(analytics.refresh, true);
-
-  const summary = analytics.analytics?.summary;
-  const cursor = readNextMonitoringCursor(analytics.analytics);
-  const exportPath = useMemo(
-    () => buildMonitoringExportPath(buildMonitoringExportQuery(uiState)),
-    [uiState]
+export function MonitoringCenterPage() {
+  const { t, i18n } = useTranslation();
+  const location = useLocation();
+  const config = useConfigStore((state) => state.config);
+  const connectionStatus = useAuthStore((state) => state.connectionStatus);
+  const managementKey = useAuthStore((state) => state.managementKey);
+  const showNotification = useNotificationStore((state) => state.showNotification);
+  const showConfirmation = useNotificationStore((state) => state.showConfirmation);
+  const requestMonitoringAvailability = useRequestMonitoringAvailability();
+  const pageTransitionLayer = usePageTransitionLayer();
+  const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.status === 'current' : true;
+  const initialAccountOverviewUiState = useMemo(() => readAccountOverviewUiState(), []);
+  const initialMonitoringCenterUiState = useMemo(
+    () => buildMonitoringInitialStateFromQuery(location.search, readMonitoringCenterUiState()),
+    [location.search]
   );
-  const statusText =
-    analytics.loading && !analytics.analytics
-      ? 'Loading monitoring data'
-      : analytics.result?.kind === 'unsupported'
-        ? analytics.result.message
-        : analytics.error || `Updated ${analytics.updatedAtMs ? formatUnixTimestamp(analytics.updatedAtMs) : DASH}`;
-  const issueText =
-    analytics.result?.kind === 'empty'
-      ? 'No monitoring events matched the current filters.'
-      : analytics.result?.kind === 'unsupported'
-        ? analytics.result.message
-        : analytics.error;
+  const initialMonitoringDrilldownFilters = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const minLatencyMs = Number(params.get('min_latency_ms'));
+    return {
+      authFile: params.get('auth_file')?.trim() || '',
+      projectId: params.get('project_id')?.trim() || '',
+      requestType: params.get('request_type')?.trim() || '',
+      minLatencyMs: Number.isFinite(minLatencyMs) && minLatencyMs > 0 ? minLatencyMs : undefined,
+      cacheStatus: params.get('cache_status')?.trim() || '',
+    };
+  }, [location.search]);
+  const [timeRange, setTimeRange] = useState<MonitoringTimeRange>(
+    initialMonitoringCenterUiState.timeRange
+  );
+  const [customStartInput, setCustomStartInput] = useState(
+    () => initialMonitoringCenterUiState.customStartInput || getTodayStartInputValue()
+  );
+  const [customEndInput, setCustomEndInput] = useState(
+    () => initialMonitoringCenterUiState.customEndInput || getCurrentInputValue()
+  );
+  const [customDraftStartInput, setCustomDraftStartInput] = useState(
+    () => initialMonitoringCenterUiState.customStartInput || getTodayStartInputValue()
+  );
+  const [customDraftEndInput, setCustomDraftEndInput] = useState(
+    () => initialMonitoringCenterUiState.customEndInput || getCurrentInputValue()
+  );
+  const [searchInput, setSearchInput] = useState(
+    () => initialMonitoringCenterUiState.searchInput
+  );
+  const [autoRefreshMs, setAutoRefreshMs] = useState(
+    () => initialMonitoringCenterUiState.autoRefreshMs
+  );
+  const [documentVisible, setDocumentVisible] = useState(
+    () => typeof document === 'undefined' || document.visibilityState !== 'hidden'
+  );
+  const [headerSnapshots, setHeaderSnapshots] = useState<UsageHeaderSnapshot[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState(
+    () => initialMonitoringCenterUiState.selectedAccount
+  );
+  const [selectedProvider, setSelectedProvider] = useState(
+    () => initialMonitoringCenterUiState.selectedProvider
+  );
+  const [selectedModel, setSelectedModel] = useState(
+    () => initialMonitoringCenterUiState.selectedModel
+  );
+  const [selectedChannel, setSelectedChannel] = useState(
+    () => initialMonitoringCenterUiState.selectedChannel
+  );
+  const [selectedApiKeyHash, setSelectedApiKeyHash] = useState(
+    () => initialMonitoringCenterUiState.selectedApiKeyHash
+  );
+  const [selectedHeaderTraceId, setSelectedHeaderTraceId] = useState(
+    () => initialMonitoringCenterUiState.selectedHeaderTraceId
+  );
+  const [selectedStatus, setSelectedStatus] = useState<StatusFilter>(
+    () => initialMonitoringCenterUiState.selectedStatus
+  );
+  const [drilldownAuthFile, setDrilldownAuthFile] = useState(
+    () => initialMonitoringDrilldownFilters.authFile
+  );
+  const [drilldownProjectId, setDrilldownProjectId] = useState(
+    () => initialMonitoringDrilldownFilters.projectId
+  );
+  const [drilldownRequestType, setDrilldownRequestType] = useState(
+    () => initialMonitoringDrilldownFilters.requestType
+  );
+  const [drilldownMinLatencyMs, setDrilldownMinLatencyMs] = useState(
+    () => initialMonitoringDrilldownFilters.minLatencyMs
+  );
+  const [drilldownCacheStatus, setDrilldownCacheStatus] = useState(
+    () => initialMonitoringDrilldownFilters.cacheStatus
+  );
+  const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
+  const [expandedApiKeys, setExpandedApiKeys] = useState<Record<string, boolean>>({});
+  const [focusedAccount, setFocusedAccount] = useState<string | null>(null);
+  const [isCustomRangeModalOpen, setIsCustomRangeModalOpen] = useState(false);
+  const [usageExporting, setUsageExporting] = useState(false);
+  const [usageImporting, setUsageImporting] = useState(false);
+  const [usageImportProgress, setUsageImportProgress] = useState<UsageImportProgressState>(
+    INITIAL_USAGE_IMPORT_PROGRESS_STATE
+  );
+  const [accountQuotaStates, setAccountQuotaStates] = useState<Record<string, AccountQuotaState>>(
+    {}
+  );
+  const [activeDataTab, setActiveDataTab] = useState<MonitoringDataTab>(
+    initialMonitoringCenterUiState.activeDataTab
+  );
+  const [accountOverviewMode, setAccountOverviewMode] = useState<MonitoringAccountOverviewMode>(
+    initialAccountOverviewUiState.mode
+  );
+  const [accountDisplayMode, setAccountDisplayMode] = useState<AccountDisplayMode>(
+    initialAccountOverviewUiState.accountDisplayMode
+  );
+  const [accountSort, setAccountSort] = useState<AccountSortState>(
+    initialAccountOverviewUiState.sort
+  );
+  const [accountPageByMode, setAccountPageByMode] = useState(() => ({
+    table: 1,
+    card: initialAccountOverviewUiState.cardPagination.page,
+  }));
+  const [accountPageSizeByMode, setAccountPageSizeByMode] = useState(() => ({
+    table: DEFAULT_ACCOUNT_PAGE_SIZE,
+    card: initialAccountOverviewUiState.cardPagination.pageSize,
+  }));
+  const [apiKeyPage, setApiKeyPage] = useState(1);
+  const [apiKeyPageSize, setApiKeyPageSize] = useState<number>(
+    initialMonitoringCenterUiState.apiKeyPageSize
+  );
+  const [realtimePage, setRealtimePage] = useState(1);
+  const [realtimePageSize, setRealtimePageSize] = useState(
+    initialMonitoringCenterUiState.realtimePageSize
+  );
+  const focusSnapshotRef = useRef<FocusSnapshot | null>(null);
+  const previousAccountPageResetStateRef = useRef<AccountOverviewPageResetState | null>(null);
+  const accountQuotaStatesRef = useRef<Record<string, AccountQuotaState>>({});
+  const accountQuotaRequestIdsRef = useRef<Record<string, number>>({});
+  const usageImportInputRef = useRef<HTMLInputElement | null>(null);
+  const usageImportAbortControllerRef = useRef<AbortController | null>(null);
+  const usageImportRunIdRef = useRef(0);
+  const deferredSearch = useDeferredValue(searchInput);
+  const deferredSearchApiKeyHash = useMemo(() => sha256Hex(deferredSearch), [deferredSearch]);
+  const accountPage =
+    accountOverviewMode === 'card' ? accountPageByMode.card : accountPageByMode.table;
+  const accountPageSize =
+    accountOverviewMode === 'card' ? accountPageSizeByMode.card : accountPageSizeByMode.table;
+  const customStartMs = useMemo(
+    () => parseDateTimeLocalValue(customStartInput),
+    [customStartInput]
+  );
+  const customEndMs = useMemo(() => parseDateTimeLocalValue(customEndInput), [customEndInput]);
+  const customDraftStartMs = useMemo(
+    () => parseDateTimeLocalValue(customDraftStartInput),
+    [customDraftStartInput]
+  );
+  const customDraftEndMs = useMemo(
+    () => parseDateTimeLocalValue(customDraftEndInput),
+    [customDraftEndInput]
+  );
+  const customTimeRangeError = useMemo(() => {
+    if (timeRange !== 'custom') return '';
+    if (customStartMs === null || customEndMs === null) {
+      return t('monitoring.custom_range_required');
+    }
+    if (customStartMs > customEndMs) {
+      return t('monitoring.custom_range_invalid');
+    }
+    return '';
+  }, [customEndMs, customStartMs, t, timeRange]);
+  const customTimeRange = useMemo<MonitoringCustomTimeRange | null>(() => {
+    if (
+      timeRange !== 'custom' ||
+      customTimeRangeError ||
+      customStartMs === null ||
+      customEndMs === null
+    ) {
+      return null;
+    }
+    return {
+      startMs: customStartMs,
+      endMs: customEndMs,
+    };
+  }, [customEndMs, customStartMs, customTimeRangeError, timeRange]);
+  const customDraftTimeRangeError = useMemo(() => {
+    if (customDraftStartMs === null || customDraftEndMs === null) {
+      return t('monitoring.custom_range_required');
+    }
+    if (customDraftStartMs > customDraftEndMs) {
+      return t('monitoring.custom_range_invalid');
+    }
+    return '';
+  }, [customDraftEndMs, customDraftStartMs, t]);
+
+  const {
+    loading: usageLoading,
+    error: usageError,
+    modelPrices,
+    apiKeyAliases,
+    loadApiKeyAliases,
+    exportUsage,
+  } = useUsageData({ loadUsageEvents: false });
+
+  const monitoringScopeFilters = useMemo(
+    () => ({
+      account: selectedAccount,
+      provider: selectedProvider,
+      authFile: drilldownAuthFile || undefined,
+      projectId: drilldownProjectId || undefined,
+      requestType: drilldownRequestType || undefined,
+      minLatencyMs: drilldownMinLatencyMs,
+      cacheStatus: drilldownCacheStatus || undefined,
+      model: selectedModel,
+      channel: selectedChannel,
+      apiKeyHash: selectedApiKeyHash,
+      headerTraceId: selectedHeaderTraceId,
+      status: selectedStatus,
+    }),
+    [
+      drilldownAuthFile,
+      drilldownCacheStatus,
+      drilldownMinLatencyMs,
+      drilldownProjectId,
+      drilldownRequestType,
+      selectedAccount,
+      selectedApiKeyHash,
+      selectedChannel,
+      selectedHeaderTraceId,
+      selectedModel,
+      selectedProvider,
+      selectedStatus,
+    ]
+  );
+
+  const {
+    loading: monitoringLoading,
+    error: monitoringError,
+    authFiles,
+    summary: monitoringSummary,
+    accountRows: monitoringAccountRows,
+    apiKeyRows: monitoringApiKeyRows,
+    filterOptions: monitoringFilterOptions,
+    filteredRows,
+    eventsHasMore,
+    eventsLoadingMore,
+    eventsRetentionLimited,
+    eventsTotalCount,
+    eventsLoadedCount,
+    lastRefreshedAt: monitoringLastRefreshedAt,
+    isTransitioningScope: monitoringScopeTransitioning,
+    hasPresentationSnapshot: hasMonitoringPresentationSnapshot,
+    refreshMeta,
+    loadMoreEvents,
+  } = useMonitoringData({
+    config,
+    modelPrices,
+    apiKeyAliases,
+    timeRange,
+    customTimeRange,
+    searchQuery: deferredSearch,
+    searchApiKeyHash: deferredSearchApiKeyHash,
+    scopeFilters: monitoringScopeFilters,
+  });
+
+  const loadHeaderSnapshots = useCallback(async () => {
+    if (!requestMonitoringAvailability.serviceBase) {
+      setHeaderSnapshots([]);
+      return;
+    }
+    try {
+      const response = await monitoringAnalyticsApi.getHeaderSnapshots(
+        requestMonitoringAvailability.serviceBase,
+        managementKey,
+        { days: 30, limit: 1000 }
+      );
+      setHeaderSnapshots(response.items ?? []);
+    } catch {
+      setHeaderSnapshots((current) => current);
+    }
+  }, [managementKey, requestMonitoringAvailability.serviceBase]);
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([loadApiKeyAliases(), refreshMeta(false), loadHeaderSnapshots()]);
+  }, [loadApiKeyAliases, loadHeaderSnapshots, refreshMeta]);
+
+  const setCurrentAccountPage = useCallback(
+    (page: number) => {
+      setAccountPageByMode((previous) => ({
+        ...previous,
+        [accountOverviewMode]: page,
+      }));
+    },
+    [accountOverviewMode]
+  );
+
+  const resetCurrentAccountPage = useCallback(() => {
+    setCurrentAccountPage(1);
+  }, [setCurrentAccountPage]);
+
+  useHeaderRefresh(refreshAll, isCurrentLayer);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const updateVisibility = () => setDocumentVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, []);
+  useInterval(
+    () => {
+      void refreshAll().catch(() => {});
+    },
+    isCurrentLayer &&
+      documentVisible &&
+      connectionStatus === 'connected' &&
+      Number(autoRefreshMs) > 0
+      ? Number(autoRefreshMs)
+      : null
+  );
+
+  useEffect(() => {
+    if (!isCurrentLayer || !requestMonitoringAvailability.serviceBase) return;
+    void loadHeaderSnapshots();
+  }, [isCurrentLayer, loadHeaderSnapshots, requestMonitoringAvailability.serviceBase]);
+
+  const monitoringUnavailable =
+    !requestMonitoringAvailability.checking && !requestMonitoringAvailability.available;
+  const usageTransferAvailable = requestMonitoringAvailability.available;
+  const monitoringUnavailableTitle =
+    requestMonitoringAvailability.reason === 'monitoring_disabled'
+      ? t('monitoring.request_monitoring_disabled_title')
+      : t('monitoring.request_monitoring_unavailable_title');
+  const monitoringUnavailableBody =
+    requestMonitoringAvailability.reason === 'monitoring_disabled'
+      ? t('monitoring.request_monitoring_disabled_body')
+      : requestMonitoringAvailability.reason === 'service_unavailable'
+        ? t('monitoring.request_monitoring_service_unavailable_body')
+        : t('monitoring.request_monitoring_not_configured_body');
+  const monitoringBlockingLoading =
+    monitoringLoading && (!monitoringScopeTransitioning || !hasMonitoringPresentationSnapshot);
+  const overallLoading =
+    usageLoading || monitoringBlockingLoading || requestMonitoringAvailability.checking;
+  const combinedError = monitoringUnavailable
+    ? monitoringError
+    : [usageError, monitoringError].filter(Boolean).join('；');
+  const hasPrices = Object.keys(modelPrices).length > 0;
+
+  useEffect(() => {
+    accountQuotaStatesRef.current = accountQuotaStates;
+  }, [accountQuotaStates]);
+
+  useEffect(() => {
+    writeAccountOverviewUiState({
+      mode: accountOverviewMode,
+      accountDisplayMode,
+      sort: accountSort,
+      cardPagination: {
+        page: accountPageByMode.card,
+        pageSize: accountPageSizeByMode.card,
+      },
+    });
+  }, [
+    accountDisplayMode,
+    accountOverviewMode,
+    accountPageByMode.card,
+    accountPageSizeByMode.card,
+    accountSort,
+  ]);
+
+  useEffect(() => {
+    writeMonitoringCenterUiState({
+      activeDataTab,
+      timeRange,
+      customStartInput,
+      customEndInput,
+      searchInput,
+      autoRefreshMs,
+      selectedAccount,
+      selectedProvider,
+      selectedModel,
+      selectedChannel,
+      selectedApiKeyHash,
+      selectedHeaderTraceId,
+      selectedStatus,
+      apiKeyPageSize,
+      realtimePageSize,
+    });
+  }, [
+    activeDataTab,
+    apiKeyPageSize,
+    autoRefreshMs,
+    customEndInput,
+    customStartInput,
+    realtimePageSize,
+    searchInput,
+    selectedAccount,
+    selectedApiKeyHash,
+    selectedChannel,
+    selectedHeaderTraceId,
+    selectedModel,
+    selectedProvider,
+    selectedStatus,
+    timeRange,
+  ]);
+
+  const providerOptions = useMemo(
+    () => buildProviderOptionsFromValues(monitoringFilterOptions.providers, selectedProvider, t),
+    [monitoringFilterOptions.providers, selectedProvider, t]
+  );
+
+  const accountOptions = useMemo(
+    () =>
+      buildAccountOptions(
+        monitoringFilterOptions.accountRows,
+        selectedAccount,
+        t,
+        accountDisplayMode
+      ),
+    [accountDisplayMode, monitoringFilterOptions.accountRows, selectedAccount, t]
+  );
+
+  const modelOptions = useMemo(
+    () => buildModelOptionsFromValues(monitoringFilterOptions.models, selectedModel, t),
+    [monitoringFilterOptions.models, selectedModel, t]
+  );
+
+  const channelOptions = useMemo(
+    () => buildChannelOptionsFromValues(monitoringFilterOptions.channels, selectedChannel, t),
+    [monitoringFilterOptions.channels, selectedChannel, t]
+  );
+
+  const apiKeyOptions = useMemo(
+    () => buildApiKeyOptionsFromRows(monitoringFilterOptions.apiKeyRows, selectedApiKeyHash, t),
+    [monitoringFilterOptions.apiKeyRows, selectedApiKeyHash, t]
+  );
+
+  const statusOptions = useMemo(() => buildStatusOptions(t), [t]);
+
+  const authFilesByAuthIndex = useMemo(() => buildAuthFilesByAuthIndex(authFiles), [authFiles]);
+  const accountSourceProviderStateBySourceKey = useMemo(
+    () =>
+      buildSourceProviderStateMap(
+        buildSourceInfoMap({
+          geminiApiKeys: config?.geminiApiKeys || [],
+          claudeApiKeys: config?.claudeApiKeys || [],
+          claudeMultikeyEntries: config?.claudeMultikeyEntries || [],
+          codexApiKeys: config?.codexApiKeys || [],
+          vertexApiKeys: config?.vertexApiKeys || [],
+          openaiCompatibility: config?.openaiCompatibility || [],
+        })
+      ),
+    [config]
+  );
+
+  const scopedRows = filteredRows;
+  const scopedStatsRows = useMemo(
+    () => scopedRows.filter((row) => row.statsIncluded),
+    [scopedRows]
+  );
+  const [accountStatusNowMs, setAccountStatusNowMs] = useState(() =>
+    monitoringLastRefreshedAt?.getTime() ?? Date.now()
+  );
+  useEffect(() => {
+    if (monitoringLastRefreshedAt) {
+      setAccountStatusNowMs(monitoringLastRefreshedAt.getTime());
+      return;
+    }
+    setAccountStatusNowMs(Date.now());
+  }, [monitoringLastRefreshedAt]);
+  const accountStatusBounds = useMemo(
+    () => getRangeBounds(timeRange, accountStatusNowMs, customTimeRange),
+    [accountStatusNowMs, customTimeRange, timeRange]
+  );
+  const accountOverviewScopeText = useMemo(
+    () => formatAccountOverviewScopeText(accountStatusBounds, i18n.language, t),
+    [accountStatusBounds, i18n.language, t]
+  );
+
+  const scopedSummary = monitoringSummary;
+  const accountRows = monitoringAccountRows;
+  const apiKeyRows = monitoringApiKeyRows;
+  const accountStatusDataByRowId = useMemo(
+    () => buildMonitoringAccountStatusDataMap(scopedRows, accountStatusBounds),
+    [accountStatusBounds, scopedRows]
+  );
+  const emptyAccountStatusData = useMemo(() => {
+    const resolvedBounds = resolveMonitoringStatusRangeBounds(scopedRows, accountStatusBounds);
+    return resolvedBounds ? buildEmptyMonitoringStatusData(resolvedBounds) : EMPTY_STATUS_BAR_DATA;
+  }, [accountStatusBounds, scopedRows]);
+  const accountAuthStateByRowId = useMemo(
+    () =>
+      buildMonitoringAccountAuthStateMap(
+        accountRows,
+        authFilesByAuthIndex,
+        accountSourceProviderStateBySourceKey
+      ),
+    [accountRows, accountSourceProviderStateBySourceKey, authFilesByAuthIndex]
+  );
+  const sortedAccountRows = useMemo(
+    () => sortAccountRows(accountRows, accountSort),
+    [accountRows, accountSort]
+  );
+  const groupedRealtimeRows = useMemo(
+    () => buildRealtimeMonitorRows(scopedStatsRows),
+    [scopedStatsRows]
+  );
+  const realtimeLogRows = useMemo(() => buildRealtimeLogRows(scopedRows), [scopedRows]);
+  const accountPagination = useMemo(
+    () => buildPaginationState(sortedAccountRows, accountPage, accountPageSize),
+    [accountPage, accountPageSize, sortedAccountRows]
+  );
+  const apiKeyPagination = useMemo(
+    () => buildPaginationState(apiKeyRows, apiKeyPage, apiKeyPageSize),
+    [apiKeyPage, apiKeyPageSize, apiKeyRows]
+  );
+  const realtimePagination = useMemo(
+    () => buildPaginationState(realtimeLogRows, realtimePage, realtimePageSize),
+    [realtimeLogRows, realtimePage, realtimePageSize]
+  );
+  const accountPageResetState = useMemo<AccountOverviewPageResetState>(
+    () => ({
+      customEndInput,
+      customStartInput,
+      deferredSearch,
+      selectedAccount,
+      selectedApiKeyHash,
+      selectedChannel,
+      selectedHeaderTraceId,
+      selectedModel,
+      selectedProvider,
+      selectedStatus,
+      timeRange,
+    }),
+    [
+      customEndInput,
+      customStartInput,
+      deferredSearch,
+      selectedAccount,
+      selectedApiKeyHash,
+      selectedChannel,
+      selectedHeaderTraceId,
+      selectedModel,
+      selectedProvider,
+      selectedStatus,
+      timeRange,
+    ]
+  );
+
+  useEffect(() => {
+    if (
+      shouldResetAccountOverviewPage(
+        previousAccountPageResetStateRef.current,
+        accountPageResetState
+      )
+    ) {
+      if (monitoringScopeTransitioning && hasMonitoringPresentationSnapshot) {
+        return;
+      }
+      resetCurrentAccountPage();
+      setApiKeyPage(1);
+      setRealtimePage(1);
+    }
+
+    previousAccountPageResetStateRef.current = accountPageResetState;
+  }, [
+    accountPageResetState,
+    hasMonitoringPresentationSnapshot,
+    monitoringScopeTransitioning,
+    resetCurrentAccountPage,
+  ]);
+
+  useEffect(() => {
+    if (
+      !shouldClampAccountOverviewPage(overallLoading, accountPage, accountPagination.currentPage)
+    ) {
+      return;
+    }
+
+    setCurrentAccountPage(accountPagination.currentPage);
+  }, [accountPage, accountPagination.currentPage, overallLoading, setCurrentAccountPage]);
+
+  const accountQuotaTargetsByAccount = useMemo(
+    () => buildMonitoringAccountQuotaTargetsByAccount(accountRows, accountAuthStateByRowId),
+    [accountAuthStateByRowId, accountRows]
+  );
+  const headerSnapshotLookup = useMemo(
+    () => buildUsageHeaderSnapshotLookup(headerSnapshots),
+    [headerSnapshots]
+  );
+  const scopedFailureCount = scopedSummary.failureCalls;
+  const accountQuotaStatesWithObservedHeaders = useMemo(() => {
+    let changed = false;
+    const nextStates = Object.fromEntries(
+      Object.entries(accountQuotaStates).map(([account, state]) => {
+        const targets = accountQuotaTargetsByAccount.get(account) ?? [];
+        const observedEntries = targets
+          .map((target) =>
+            buildObservedCodexAccountQuotaEntry(
+              target,
+              getHighConfidenceUsageHeaderSnapshotForAuthFile(headerSnapshotLookup, target.file),
+              t
+            )
+          )
+          .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+        const nextState =
+          mergeObservedAccountQuotaState(state, targets, observedEntries) ?? state;
+        changed = changed || nextState !== state;
+        return [account, nextState] as const;
+      })
+    );
+    return changed ? nextStates : accountQuotaStates;
+  }, [accountQuotaStates, accountQuotaTargetsByAccount, headerSnapshotLookup, t]);
+
+  const hasSearchFilter = Boolean(deferredSearch.trim());
+  const hasScopeFilter =
+    selectedAccount !== 'all' ||
+    selectedProvider !== 'all' ||
+    selectedModel !== 'all' ||
+    selectedChannel !== 'all' ||
+    selectedApiKeyHash !== 'all' ||
+    selectedHeaderTraceId !== 'all' ||
+    selectedStatus !== 'all' ||
+    Boolean(drilldownAuthFile) ||
+    Boolean(drilldownProjectId) ||
+    Boolean(drilldownRequestType) ||
+    Boolean(drilldownMinLatencyMs) ||
+    Boolean(drilldownCacheStatus);
+  const hasActiveDataFilter = hasSearchFilter || hasScopeFilter;
+  const failedGroupCount = groupedRealtimeRows.filter((row) => row.failureCalls > 0).length;
+  const failedOnlyActive = selectedStatus === 'failed';
+  const connectionTone: MonitoringStatusTone =
+    connectionStatus === 'connected' ? 'good' : connectionStatus === 'connecting' ? 'warn' : 'bad';
+  const connectionLabel =
+    connectionStatus === 'connected'
+      ? t('common.connected_status')
+      : connectionStatus === 'connecting'
+        ? t('common.connecting_status')
+        : connectionStatus === 'error'
+          ? t('common.error')
+          : t('common.disconnected_status');
+
+  const accountOverviewColumns = useMemo(() => buildAccountOverviewColumns(t), [t]);
+
+  const apiKeyOverviewColumns = useMemo(() => buildApiKeyOverviewColumns(t), [t]);
+
+  const accountSortOptions = useMemo(
+    () => buildAccountSortOptions(accountOverviewColumns, t),
+    [accountOverviewColumns, t]
+  );
+
+  const accountPageSizeOptions =
+    accountOverviewMode === 'card'
+      ? ACCOUNT_OVERVIEW_CARD_PAGE_SIZE_OPTIONS
+      : ACCOUNT_OVERVIEW_TABLE_PAGE_SIZE_OPTIONS;
+
+  const primarySummaryCards = useMemo(
+    () =>
+      buildPrimarySummaryCards({
+        summary: scopedSummary,
+        accountCount: accountRows.length,
+        failedGroupCount,
+        hasPrices,
+        locale: i18n.language,
+        t,
+      }),
+    [accountRows.length, failedGroupCount, hasPrices, i18n.language, scopedSummary, t]
+  );
+
+  const secondarySummaryCards = useMemo(
+    () => buildSecondarySummaryCards(scopedSummary, i18n.language, t),
+    [i18n.language, scopedSummary, t]
+  );
+
+  const dataTabs = useMemo<MonitoringTab<MonitoringDataTab>[]>(() => {
+    const totalCalls = scopedSummary.totalCalls;
+    const failureCount = scopedFailureCount;
+    const realtimeHasFailure = failureCount > 0;
+    const realtimeBadge = realtimeHasFailure ? failureCount : formatCompactNumber(totalCalls);
+    return [
+      {
+        id: 'accounts',
+        label: shortLabel(t, 'monitoring.data_tab_accounts_short', 'monitoring.data_tab_accounts'),
+        fullLabel: t('monitoring.data_tab_accounts'),
+        icon: 'accounts',
+        badge: accountRows.length,
+        badgeTitle: t('monitoring.data_tab_accounts_badge_title', { count: accountRows.length }),
+      },
+      {
+        id: 'apiKeys',
+        label: shortLabel(t, 'monitoring.data_tab_api_keys_short', 'monitoring.data_tab_api_keys'),
+        fullLabel: t('monitoring.data_tab_api_keys'),
+        icon: 'apiKeys',
+        badge: apiKeyRows.length,
+        badgeTitle: t('monitoring.data_tab_api_keys_badge_title', { count: apiKeyRows.length }),
+      },
+      {
+        id: 'realtime',
+        label: shortLabel(t, 'monitoring.data_tab_realtime_short', 'monitoring.data_tab_realtime'),
+        fullLabel: t('monitoring.data_tab_realtime'),
+        icon: 'realtime',
+        badge: realtimeBadge,
+        badgeTone: realtimeHasFailure ? 'failure' : 'default',
+        badgeTitle: t('monitoring.data_tab_realtime_badge_title', {
+          failed: failureCount,
+          total: totalCalls,
+        }),
+      },
+    ];
+  }, [accountRows.length, apiKeyRows.length, scopedFailureCount, scopedSummary.totalCalls, t]);
+
+  const handleDataTabChange = useCallback((tab: MonitoringDataTab) => {
+    setActiveDataTab(tab);
+  }, []);
+
+  const restoreFocusSnapshot = useCallback(() => {
+    const snapshot = focusSnapshotRef.current;
+    focusSnapshotRef.current = null;
+    setFocusedAccount(null);
+
+    if (!snapshot) {
+      setSelectedAccount('all');
+      return;
+    }
+
+    setSearchInput(snapshot.searchInput);
+    setSelectedAccount(snapshot.selectedAccount);
+    setSelectedProvider(snapshot.selectedProvider);
+    setSelectedModel(snapshot.selectedModel);
+    setSelectedChannel(snapshot.selectedChannel);
+    setSelectedApiKeyHash(snapshot.selectedApiKeyHash);
+    setSelectedHeaderTraceId(snapshot.selectedHeaderTraceId);
+    setSelectedStatus(snapshot.selectedStatus);
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    focusSnapshotRef.current = null;
+    setFocusedAccount(null);
+    setSearchInput('');
+    setSelectedAccount('all');
+    setSelectedProvider('all');
+    setSelectedModel('all');
+    setSelectedChannel('all');
+    setSelectedApiKeyHash('all');
+    setSelectedHeaderTraceId('all');
+    setSelectedStatus('all');
+    setDrilldownAuthFile('');
+    setDrilldownProjectId('');
+    setDrilldownRequestType('');
+    setDrilldownMinLatencyMs(undefined);
+    setDrilldownCacheStatus('');
+  }, []);
+
+  const renderMonitoringEmptyState = () => (
+    <div className={styles.emptyState}>
+      <IconInbox size={48} className={styles.emptyStateIcon} aria-hidden="true" />
+      <strong className={styles.emptyStateTitle}>
+        {hasActiveDataFilter ? t('monitoring.no_filtered_data') : t('monitoring.no_data')}
+      </strong>
+      {!hasActiveDataFilter ? (
+        <details className={styles.emptyStateDetails}>
+          <summary className={styles.emptyStateSummary}>
+            {t('monitoring.empty_diagnostics_link')}
+          </summary>
+          <span className={styles.emptyStateBody}>{t('monitoring.empty_diagnostics_body')}</span>
+        </details>
+      ) : null}
+    </div>
+  );
+
+  const openCustomRangeModal = useCallback(() => {
+    setCustomDraftStartInput(customStartInput || getTodayStartInputValue());
+    setCustomDraftEndInput(customEndInput || getCurrentInputValue());
+    setIsCustomRangeModalOpen(true);
+  }, [customEndInput, customStartInput]);
+
+  const handleTimeRangeChange = useCallback(
+    (range: MonitoringTimeRange) => {
+      if (range === 'custom') {
+        openCustomRangeModal();
+        return;
+      }
+      setIsCustomRangeModalOpen(false);
+      setTimeRange(range);
+    },
+    [openCustomRangeModal]
+  );
+
+  const handleCustomDraftStartChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setCustomDraftStartInput(event.target.value);
+  }, []);
+
+  const handleCustomDraftEndChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setCustomDraftEndInput(event.target.value);
+  }, []);
+
+  const applyCustomTimeRange = useCallback(() => {
+    if (customDraftTimeRangeError) return;
+    setCustomStartInput(customDraftStartInput);
+    setCustomEndInput(customDraftEndInput);
+    setTimeRange('custom');
+    setIsCustomRangeModalOpen(false);
+  }, [customDraftEndInput, customDraftStartInput, customDraftTimeRangeError]);
+
+  const toggleFailedOnly = useCallback(() => {
+    setSelectedStatus((previous) => (previous === 'failed' ? 'all' : 'failed'));
+  }, []);
+
+  const toggleApiKeyExpanded = useCallback((apiKeyId: string) => {
+    setExpandedApiKeys((previous) => ({
+      ...previous,
+      [apiKeyId]: !previous[apiKeyId],
+    }));
+  }, []);
+
+  const loadAccountQuota = useCallback(
+    async (account: string, force: boolean = false) => {
+      const currentState = accountQuotaStatesRef.current[account];
+      const targets = accountQuotaTargetsByAccount.get(account) ?? [];
+      const targetKey = targets.map((target) => target.key).join('|');
+      const previousEntriesByKey =
+        currentState?.targetKey === targetKey
+          ? new Map(currentState.entries.map((entry) => [entry.key, entry]))
+          : new Map();
+      const observedEntries = targets
+        .map((target) =>
+          buildObservedCodexAccountQuotaEntry(
+            target,
+            getHighConfidenceUsageHeaderSnapshotForAuthFile(headerSnapshotLookup, target.file),
+            t
+          )
+        )
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+      if (
+        !force &&
+        currentState &&
+        currentState.status !== 'idle' &&
+        currentState.targetKey === targetKey
+      ) {
+        return;
+      }
+
+      const requestId = (accountQuotaRequestIdsRef.current[account] ?? 0) + 1;
+      accountQuotaRequestIdsRef.current[account] = requestId;
+
+      setAccountQuotaStates((previous) => ({
+        ...previous,
+        [account]: {
+          status: 'loading',
+          targetKey,
+          entries:
+            previous[account]?.targetKey === targetKey
+              ? (previous[account]?.entries ?? observedEntries)
+              : observedEntries,
+          lastRefreshedAt: previous[account]?.lastRefreshedAt,
+        },
+      }));
+
+      if (targets.length === 0) {
+        if (accountQuotaRequestIdsRef.current[account] !== requestId) return;
+        setAccountQuotaStates((previous) => ({
+          ...previous,
+          [account]: {
+            status: 'success',
+            targetKey,
+            entries: [],
+            lastRefreshedAt: Date.now(),
+          },
+        }));
+        return;
+      }
+
+      const settled = await Promise.allSettled(
+        targets.map((target) => requestAccountQuota(target, t))
+      );
+      if (accountQuotaRequestIdsRef.current[account] !== requestId) return;
+
+      const hasFailure = settled.some((result) => result.status === 'rejected');
+      const completedAtMs = Date.now();
+      const entries = settled.map((result, index) => {
+        const fallback = targets[index];
+        if (result.status === 'fulfilled') {
+          return result.value;
+        }
+
+        const error =
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason || t('common.unknown_error'));
+        const observedEntry = buildObservedCodexAccountQuotaEntry(
+          fallback,
+          getHighConfidenceUsageHeaderSnapshotForAuthFile(headerSnapshotLookup, fallback.file),
+          t
+        );
+        return buildAccountQuotaRefreshFailureEntry(
+          fallback,
+          error,
+          t,
+          previousEntriesByKey.get(fallback.key),
+          observedEntry,
+          completedAtMs
+        );
+      });
+
+      const hasSuccess = entries.some((entry) => !entry.error);
+      const firstError = entries.find((entry) => entry.error)?.error;
+      setAccountQuotaStates((previous) => ({
+        ...previous,
+        [account]: {
+          status: hasFailure ? 'error' : hasSuccess ? 'success' : 'error',
+          targetKey,
+          entries,
+          error: hasFailure ? firstError || t('common.unknown_error') : '',
+          failedAtMs: hasFailure ? completedAtMs : undefined,
+          lastRefreshedAt: hasFailure ? previous[account]?.lastRefreshedAt : completedAtMs,
+        },
+      }));
+    },
+    [accountQuotaTargetsByAccount, headerSnapshotLookup, t]
+  );
+
+  const toggleAccountExpanded = useCallback(
+    (accountId: string, _account: string) => {
+      if (!expandedAccounts[accountId]) {
+        void loadAccountQuota(accountId);
+      }
+      setExpandedAccounts((previous) => ({
+        ...previous,
+        [accountId]: !previous[accountId],
+      }));
+    },
+    [expandedAccounts, loadAccountQuota]
+  );
+
+  const focusAccount = useCallback(
+    (row: MonitoringAccountRow) => {
+      const account = row.account;
+      const accountFilterValue = row.filterValue || row.account;
+      if (focusedAccount === account) {
+        restoreFocusSnapshot();
+        return;
+      }
+
+      if (!focusSnapshotRef.current) {
+        focusSnapshotRef.current = {
+          searchInput,
+          selectedAccount,
+          selectedProvider,
+          selectedModel,
+          selectedChannel,
+          selectedApiKeyHash,
+          selectedHeaderTraceId,
+          selectedStatus,
+        };
+      }
+
+      setFocusedAccount(account);
+      setSelectedAccount(accountFilterValue);
+    },
+    [
+      focusedAccount,
+      restoreFocusSnapshot,
+      searchInput,
+      selectedAccount,
+      selectedApiKeyHash,
+      selectedChannel,
+      selectedHeaderTraceId,
+      selectedModel,
+      selectedProvider,
+      selectedStatus,
+    ]
+  );
+
+  const handleAccountFilterChange = useCallback(
+    (value: string) => {
+      setSelectedAccount(value);
+
+      if (focusedAccount && value !== focusedAccount) {
+        focusSnapshotRef.current = null;
+        setFocusedAccount(null);
+      }
+    },
+    [focusedAccount]
+  );
+
+  const handleAccountPageSizeChange = useCallback(
+    (pageSize: number) => {
+      setAccountPageSizeByMode((previous) => ({
+        ...previous,
+        [accountOverviewMode]: normalizeAccountOverviewPageSize(pageSize, accountOverviewMode),
+      }));
+      resetCurrentAccountPage();
+    },
+    [accountOverviewMode, resetCurrentAccountPage]
+  );
+
+  const handleApiKeyPageSizeChange = useCallback((pageSize: number) => {
+    setApiKeyPageSize(normalizeAccountOverviewPageSize(pageSize, 'table'));
+    setApiKeyPage(1);
+  }, []);
+
+  const handleRealtimePageSizeChange = useCallback((pageSize: number) => {
+    setRealtimePageSize(pageSize);
+    setRealtimePage(1);
+  }, []);
+
+  const handleAccountSortKeyChange = useCallback(
+    (key: AccountSortKey) => {
+      resetCurrentAccountPage();
+      setAccountSort((previous) =>
+        previous.key === key
+          ? previous
+          : {
+              key,
+              direction: 'desc',
+            }
+      );
+    },
+    [resetCurrentAccountPage]
+  );
+
+  const handleAccountSort = useCallback(
+    (key: AccountSortKey) => {
+      resetCurrentAccountPage();
+      setAccountSort((previous) =>
+        previous.key === key
+          ? {
+              key,
+              direction: previous.direction === 'desc' ? 'asc' : 'desc',
+            }
+          : {
+              key,
+              direction: 'desc',
+            }
+      );
+    },
+    [resetCurrentAccountPage]
+  );
+
+  const dataPanelActions = useMemo(() => {
+    if (activeDataTab === 'accounts') {
+      return (
+        <AccountOverviewPanelActions
+          mode={accountOverviewMode}
+          accountDisplayMode={accountDisplayMode}
+          searchInput={searchInput}
+          accountSort={accountSort}
+          accountSortOptions={accountSortOptions}
+          overallLoading={overallLoading}
+          t={t}
+          onSearchChange={setSearchInput}
+          onRefreshAll={refreshAll}
+          onAccountSortKeyChange={handleAccountSortKeyChange}
+          onModeChange={setAccountOverviewMode}
+          onAccountDisplayModeChange={setAccountDisplayMode}
+        />
+      );
+    }
+
+    if (activeDataTab === 'apiKeys') {
+      return <ApiKeySummaryPanelActions rowCount={apiKeyRows.length} t={t} />;
+    }
+
+    return (
+      <RealtimeEventsPanelActions
+        rowCount={realtimeLogRows.length}
+        scopedFailureCount={scopedFailureCount}
+        failedOnlyActive={failedOnlyActive}
+        accountDisplayMode={accountDisplayMode}
+        t={t}
+        onToggleFailedOnly={toggleFailedOnly}
+        onAccountDisplayModeChange={setAccountDisplayMode}
+      />
+    );
+  }, [
+    accountOverviewMode,
+    accountDisplayMode,
+    accountSort,
+    accountSortOptions,
+    activeDataTab,
+    apiKeyRows.length,
+    failedOnlyActive,
+    handleAccountSortKeyChange,
+    overallLoading,
+    realtimeLogRows.length,
+    refreshAll,
+    scopedFailureCount,
+    searchInput,
+    t,
+    toggleFailedOnly,
+  ]);
+
+  const handleAccountPageChange = useCallback(
+    (page: number) => {
+      setCurrentAccountPage(page);
+    },
+    [setCurrentAccountPage]
+  );
+
+  const handleApiKeyPageChange = useCallback((page: number) => {
+    setApiKeyPage(page);
+  }, []);
+
+  const resolveUsageTransferError = useCallback(
+    (error: unknown) => {
+      const rawMessage =
+        error instanceof Error ? error.message : String(error || t('common.unknown_error'));
+      return rawMessage === 'usage_import_export_requires_usage_service'
+        ? t('usage_stats.import_export_requires_usage_service')
+        : rawMessage;
+    },
+    [t]
+  );
+
+  const showUsageImportResult = useCallback(
+    (result: UsageImportResponse) => {
+      const unsupported = result.unsupported ?? 0;
+      showNotification(
+        `${t('usage_stats.import_success', {
+          added: result.added ?? 0,
+          skipped: result.skipped ?? 0,
+          total: result.total ?? 0,
+          failed: result.failed ?? 0,
+        })}${unsupported > 0 ? `, ${t('usage_stats.import_unsupported', { count: unsupported })}` : ''}`,
+        (result.failed ?? 0) > 0 || unsupported > 0 ? 'warning' : 'success'
+      );
+      if (result.format?.startsWith('legacy') || (result.warnings ?? []).length > 0) {
+        showNotification(t('usage_stats.import_legacy_warning'), 'warning');
+      }
+    },
+    [showNotification, t]
+  );
+
+  const handleUsageExport = useCallback(async () => {
+    setUsageExporting(true);
+    try {
+      const response = await exportUsage();
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      downloadBlob({
+        filename: response.filename || `usage-events-${timestamp}.jsonl`,
+        blob: response.blob,
+      });
+      showNotification(t('usage_stats.export_success'), 'success');
+    } catch (error: unknown) {
+      const message = resolveUsageTransferError(error);
+      showNotification(
+        `${t('notification.download_failed')}${message ? `: ${message}` : ''}`,
+        'error'
+      );
+    } finally {
+      setUsageExporting(false);
+    }
+  }, [exportUsage, resolveUsageTransferError, showNotification, t]);
+
+  const importUsageFile = useCallback(
+    async (file: File) => {
+      const serviceBase = requestMonitoringAvailability.serviceBase;
+      if (!serviceBase) {
+        showNotification(t('usage_stats.import_export_requires_usage_service'), 'warning');
+        return;
+      }
+
+      const decision = chooseUsageImportUploadStrategy(file);
+      const controller = new AbortController();
+      const runId = usageImportRunIdRef.current + 1;
+      usageImportRunIdRef.current = runId;
+      usageImportAbortControllerRef.current = controller;
+      setUsageImporting(true);
+      setUsageImportProgress({
+        open: true,
+        status: 'running',
+        file,
+        decision,
+        progress: {
+          phase: decision.strategy === 'session' ? 'creating' : 'uploading',
+          uploadedBytes: 0,
+          totalBytes: file.size,
+        },
+        session: null,
+        error: '',
+      });
+
+      try {
+        const result = await importUsageFileWithSession({
+          base: serviceBase,
+          file,
+          managementKey,
+          api: usageServiceApi,
+          signal: controller.signal,
+          cancelSessionOnAbort: false,
+          onProgress: (progress) => {
+            setUsageImportProgress((current) => {
+              if (usageImportRunIdRef.current !== runId) return current;
+              return {
+                ...current,
+                open: true,
+                status: 'running',
+                progress,
+                session: progress.session ?? current.session,
+                error: '',
+              };
+            });
+          },
+        });
+
+        if (usageImportRunIdRef.current !== runId) return;
+        const importResult =
+          result.strategy === 'single-post' ? result.result : result.session.result;
+        setUsageImportProgress((current) => ({
+          ...current,
+          open: true,
+          status: 'success',
+          progress: current.progress
+            ? {
+                ...current.progress,
+                phase: 'completed',
+                uploadedBytes: file.size,
+                totalBytes: file.size,
+              }
+            : {
+                phase: 'completed',
+                uploadedBytes: file.size,
+                totalBytes: file.size,
+              },
+          session: result.strategy === 'session' ? result.session : current.session,
+          error: '',
+        }));
+        if (importResult && 'added' in importResult) {
+          showUsageImportResult(importResult as UsageImportResponse);
+        }
+        await refreshAll();
+      } catch (error: unknown) {
+        if (usageImportRunIdRef.current !== runId) return;
+        if (isUsageImportAbortError(error, controller.signal)) {
+          setUsageImportProgress((current) => ({
+            ...current,
+            status: 'paused',
+            error: '',
+          }));
+          return;
+        }
+        const message = resolveUsageTransferError(error);
+        setUsageImportProgress((current) => ({
+          ...current,
+          open: true,
+          status: 'error',
+          error: message,
+        }));
+        showNotification(
+          `${t('notification.upload_failed')}${message ? `: ${message}` : ''}`,
+          'error'
+        );
+      } finally {
+        if (usageImportRunIdRef.current === runId) {
+          usageImportAbortControllerRef.current = null;
+          setUsageImporting(false);
+        }
+      }
+    },
+    [
+      managementKey,
+      refreshAll,
+      requestMonitoringAvailability.serviceBase,
+      resolveUsageTransferError,
+      showNotification,
+      showUsageImportResult,
+      t,
+    ]
+  );
+
+  const handleUsageImportPause = useCallback(() => {
+    usageImportAbortControllerRef.current?.abort();
+  }, []);
+
+  const handleUsageImportResume = useCallback(() => {
+    const file = usageImportProgress.file;
+    if (file) {
+      void importUsageFile(file);
+      return;
+    }
+    usageImportInputRef.current?.click();
+  }, [importUsageFile, usageImportProgress.file]);
+
+  const handleUsageImportCancel = useCallback(() => {
+    const sessionId = usageImportProgress.session?.id ?? usageImportProgress.progress?.session?.id;
+    const file = usageImportProgress.file;
+    const serviceBase = requestMonitoringAvailability.serviceBase;
+    usageImportAbortControllerRef.current?.abort();
+    usageImportRunIdRef.current += 1;
+    setUsageImporting(false);
+    setUsageImportProgress((current) => ({
+      ...current,
+      status: 'cancelling',
+      error: '',
+    }));
+
+    void (async () => {
+      try {
+        if (sessionId && serviceBase) {
+          await usageServiceApi.cancelUsageImportSession(serviceBase, sessionId, managementKey);
+        }
+        if (file && serviceBase && typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.removeItem(buildUsageImportSessionFingerprintKey(serviceBase, file));
+        }
+        setUsageImportProgress((current) => ({
+          ...current,
+          status: 'cancelled',
+        }));
+      } catch (error: unknown) {
+        const message = resolveUsageTransferError(error);
+        setUsageImportProgress((current) => ({
+          ...current,
+          status: 'error',
+          error: message,
+        }));
+      }
+    })();
+  }, [
+    managementKey,
+    requestMonitoringAvailability.serviceBase,
+    resolveUsageTransferError,
+    usageImportProgress.file,
+    usageImportProgress.progress?.session?.id,
+    usageImportProgress.session?.id,
+  ]);
+
+  const handleUsageImportProgressClose = useCallback(() => {
+    setUsageImportProgress(INITIAL_USAGE_IMPORT_PROGRESS_STATE);
+  }, []);
+
+  const handleUsageImportClick = useCallback(() => {
+    if (!requestMonitoringAvailability.available) {
+      showNotification(t('usage_stats.import_export_requires_usage_service'), 'warning');
+      return;
+    }
+    usageImportInputRef.current?.click();
+  }, [requestMonitoringAvailability.available, showNotification, t]);
+
+  const handleUsageImportChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) return;
+
+      if (!isUsageImportFile(file)) {
+        showNotification(t('usage_stats.import_invalid'), 'error');
+        return;
+      }
+      if (file.size > MAX_USAGE_IMPORT_FILE_SIZE) {
+        showNotification(
+          t('usage_stats.import_file_too_large', {
+            maxSize: formatFileSize(MAX_USAGE_IMPORT_FILE_SIZE),
+          }),
+          'error'
+        );
+        return;
+      }
+
+      showConfirmation({
+        title: t('usage_stats.import_confirm_title'),
+        message: t('usage_stats.import_confirm_body', { name: file.name }),
+        confirmText: t('usage_stats.import'),
+        variant: 'primary',
+        onConfirm: () => importUsageFile(file),
+      });
+    },
+    [importUsageFile, showConfirmation, showNotification, t]
+  );
+
+  if (monitoringUnavailable) {
+    return (
+      <div className={styles.page}>
+        <MonitoringStatusHeader
+          showLoadingOverlay={false}
+          monitoringUnavailable={monitoringUnavailable}
+          monitoringUnavailableTitle={monitoringUnavailableTitle}
+          monitoringUnavailableBody={monitoringUnavailableBody}
+          t={t}
+        />
+      </div>
+    );
+  }
 
   return (
-    <main style={styles.page}>
-      <header style={styles.header}>
-        <div>
-          <h1 style={styles.title}>Monitoring</h1>
-          <p style={styles.subtitle}>Last 24 hours</p>
-        </div>
-        <div style={styles.statusLine}>
-          <span>{statusText}</span>
-          {usage.status?.kind === 'success' && <span>{usage.status.data.events} events</span>}
-        </div>
-      </header>
+    <div className={styles.page}>
+      <MonitoringStatusHeader
+        showLoadingOverlay={
+          overallLoading &&
+          filteredRows.length === 0 &&
+          (!monitoringScopeTransitioning || !hasMonitoringPresentationSnapshot)
+        }
+        monitoringUnavailable={monitoringUnavailable}
+        monitoringUnavailableTitle={monitoringUnavailableTitle}
+        monitoringUnavailableBody={monitoringUnavailableBody}
+        t={t}
+      />
 
-      <section style={styles.toolbar} aria-label="Monitoring filters">
-        <IconFilterAll size={18} aria-hidden="true" />
-        <input
-          id="monitoring-search-input"
-          style={styles.input}
-          value={uiState.filters.searchQuery ?? ''}
-          placeholder="Search model, source, trace, endpoint"
-          onChange={(event) =>
-            setUiState((previous) =>
-              setMonitoringFilters(previous, {
-                ...previous.filters,
-                searchQuery: event.target.value,
-              })
-            )
+      <MonitoringActionBar
+        usageTransferAvailable={usageTransferAvailable}
+        usageExporting={usageExporting}
+        usageImporting={usageImporting}
+        loggingToFile={isFileLogsAvailable(config)}
+        modelPricesAvailable={requestMonitoringAvailability.modelPricesAvailable}
+        usageImportInputRef={usageImportInputRef}
+        t={t}
+        onUsageExport={handleUsageExport}
+        onUsageImportClick={handleUsageImportClick}
+        onUsageImportChange={handleUsageImportChange}
+        statusSummary={
+          <MonitoringStatusSummary
+            connectionTone={connectionTone}
+            connectionLabel={connectionLabel}
+            lastRefreshedAt={monitoringLastRefreshedAt}
+            locale={i18n.language}
+            scopedFailureCount={scopedFailureCount}
+            totalCalls={scopedSummary.totalCalls}
+            t={t}
+          />
+        }
+      />
+
+      <MonitoringFiltersPanel
+        timeRange={timeRange}
+        autoRefreshMs={autoRefreshMs}
+        selectedAccount={selectedAccount}
+        selectedProvider={selectedProvider}
+        selectedModel={selectedModel}
+        selectedChannel={selectedChannel}
+        selectedApiKeyHash={selectedApiKeyHash}
+        selectedStatus={selectedStatus}
+        searchInput={searchInput}
+        accountOptions={accountOptions}
+        providerOptions={providerOptions}
+        modelOptions={modelOptions}
+        channelOptions={channelOptions}
+        apiKeyOptions={apiKeyOptions}
+        statusOptions={statusOptions}
+        combinedError={combinedError}
+        usageStatisticsEnabled={
+          Boolean(config?.usageStatisticsEnabled) || requestMonitoringAvailability.available
+        }
+        overallLoading={overallLoading}
+        t={t}
+        onTimeRangeChange={handleTimeRangeChange}
+        onAutoRefreshChange={setAutoRefreshMs}
+        onRefreshAll={refreshAll}
+        onAccountFilterChange={handleAccountFilterChange}
+        onProviderChange={setSelectedProvider}
+        onModelChange={setSelectedModel}
+        onChannelChange={setSelectedChannel}
+        onApiKeyChange={setSelectedApiKeyHash}
+        onStatusChange={(value) => setSelectedStatus(value as StatusFilter)}
+        onSearchChange={setSearchInput}
+        onClearFilters={clearFilters}
+      />
+
+      <MonitoringSummarySection
+        primaryCards={primarySummaryCards}
+        secondaryCards={secondarySummaryCards}
+      />
+
+      <MonitoringDataPanel
+        tabs={dataTabs}
+        activeTab={activeDataTab}
+        onTabChange={handleDataTabChange}
+        ariaLabel={t('monitoring.data_tabs_aria_label')}
+        actions={dataPanelActions}
+        renderContent={(tab) => {
+          if (tab === 'accounts') {
+            return (
+              <AccountOverviewPanel
+                embedded
+                mode={accountOverviewMode}
+                accountDisplayMode={accountDisplayMode}
+                searchInput={searchInput}
+                columns={accountOverviewColumns}
+                rows={sortedAccountRows}
+                pagination={accountPagination}
+                accountSort={accountSort}
+                accountSortOptions={accountSortOptions}
+                expandedAccounts={expandedAccounts}
+                focusedAccount={focusedAccount}
+                accountAuthStateByRowId={accountAuthStateByRowId}
+                accountStatusDataByRowId={accountStatusDataByRowId}
+                emptyAccountStatusData={emptyAccountStatusData}
+                accountQuotaStates={accountQuotaStatesWithObservedHeaders}
+                accountPageSize={accountPageSize}
+                accountPageSizeOptions={accountPageSizeOptions}
+                accountOverviewScopeText={accountOverviewScopeText}
+                hasPrices={hasPrices}
+                overallLoading={overallLoading}
+                locale={i18n.language}
+                emptyState={renderMonitoringEmptyState()}
+                t={t}
+                onSearchChange={setSearchInput}
+                onRefreshAll={refreshAll}
+                onAccountSortKeyChange={handleAccountSortKeyChange}
+                onModeChange={setAccountOverviewMode}
+                onAccountDisplayModeChange={setAccountDisplayMode}
+                onAccountSort={handleAccountSort}
+                onLoadAccountQuota={loadAccountQuota}
+                onToggleExpanded={toggleAccountExpanded}
+                onFocusAccount={focusAccount}
+                onPageChange={handleAccountPageChange}
+                onPageSizeChange={handleAccountPageSizeChange}
+              />
+            );
           }
-        />
-        <select
-          id="monitoring-provider-filter"
-          style={styles.select}
-          value={uiState.filters.providers?.[0] ?? ''}
-          onChange={(event) =>
-            setUiState((previous) =>
-              setMonitoringFilters(previous, {
-                ...previous.filters,
-                providers: event.target.value ? [event.target.value] : undefined,
-              })
-            )
+
+          if (tab === 'apiKeys') {
+            return (
+              <ApiKeySummaryPanel
+                embedded
+                rows={apiKeyRows}
+                columns={apiKeyOverviewColumns}
+                pagination={apiKeyPagination}
+                expandedApiKeys={expandedApiKeys}
+                hasPrices={hasPrices}
+                locale={i18n.language}
+                pageSize={apiKeyPageSize}
+                pageSizeOptions={ACCOUNT_OVERVIEW_TABLE_PAGE_SIZE_OPTIONS}
+                emptyState={renderMonitoringEmptyState()}
+                t={t}
+                onToggleApiKey={toggleApiKeyExpanded}
+                onPageChange={handleApiKeyPageChange}
+                onPageSizeChange={handleApiKeyPageSizeChange}
+              />
+            );
           }
-        >
-          <option value="">All providers</option>
-          {analytics.selectors.providers.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <select
-          id="monitoring-density"
-          style={styles.select}
-          value={uiState.density}
-          onChange={(event) =>
-            setUiState((previous) =>
-              setMonitoringDensity(previous, event.target.value as MonitoringDensity)
-            )
-          }
-        >
-          <option value="compact">Compact</option>
-          <option value="full">Full</option>
-        </select>
-        <button
-          id="monitoring-refresh"
-          type="button"
-          style={styles.button}
-          onClick={() => void analytics.refresh()}
-        >
-          <IconRefreshCw size={16} aria-hidden="true" />
-          Refresh
-        </button>
-        <a id="monitoring-export" style={styles.button} href={exportPath}>
-          <IconDownload size={16} aria-hidden="true" />
-          Export
-        </a>
-      </section>
 
-      {issueText && (
-        <section style={styles.issue} aria-live="polite">
-          <IconAlertTriangle size={16} aria-hidden="true" />
-          <span>{issueText}</span>
-        </section>
-      )}
+          return (
+            <RealtimeEventsPanel
+              embedded
+              rows={realtimeLogRows}
+              pagination={realtimePagination}
+              pageSize={realtimePageSize}
+              scopedFailureCount={scopedFailureCount}
+              failedOnlyActive={failedOnlyActive}
+              eventsHasMore={eventsHasMore}
+              eventsLoadingMore={eventsLoadingMore}
+              eventsRetentionLimited={eventsRetentionLimited}
+              eventsTotalCount={eventsTotalCount}
+              eventsLoadedCount={eventsLoadedCount}
+              overallLoading={overallLoading}
+              hasPrices={hasPrices}
+              accountDisplayMode={accountDisplayMode}
+              locale={i18n.language}
+              emptyState={renderMonitoringEmptyState()}
+              t={t}
+              onToggleFailedOnly={toggleFailedOnly}
+              onAccountDisplayModeChange={setAccountDisplayMode}
+              onPageChange={setRealtimePage}
+              onPageSizeChange={handleRealtimePageSizeChange}
+              onLoadMoreEvents={loadMoreEvents}
+            />
+          );
+        }}
+      />
 
-      <section style={styles.tabs} aria-label="Monitoring sections">
-        {MONITORING_TABS.map((tab) => (
-          <button
-            id={`monitoring-tab-${tab}`}
-            key={tab}
-            type="button"
-            style={mergeStyle(styles.tabButton, uiState.activeTab === tab ? styles.activeTab : {})}
-            onClick={() => setUiState((previous) => setMonitoringTab(previous, tab))}
-          >
-            {tab === 'accounts' && <IconSatellite size={16} aria-hidden="true" />}
-            {tab === 'keys' && <IconKey size={16} aria-hidden="true" />}
-            {tab === 'realtime' && <IconScrollText size={16} aria-hidden="true" />}
-            <strong>{tabLabels[tab]}</strong>
-          </button>
-        ))}
-      </section>
+      <MonitoringCustomRangeModal
+        open={isCustomRangeModalOpen}
+        onClose={() => setIsCustomRangeModalOpen(false)}
+        startInput={customDraftStartInput}
+        endInput={customDraftEndInput}
+        error={customDraftTimeRangeError}
+        t={t}
+        onApply={applyCustomTimeRange}
+        onStartChange={handleCustomDraftStartChange}
+        onEndChange={handleCustomDraftEndChange}
+      />
 
-      <section style={styles.summaryGrid} aria-label="Monitoring summary">
-        <div style={styles.metric}>
-          <p style={styles.metricLabel}>Calls</p>
-          <p style={styles.metricValue}>{formatCompactNumber(summary?.totalCalls ?? 0)}</p>
-        </div>
-        <div style={styles.metric}>
-          <p style={styles.metricLabel}>Success rate</p>
-          <p style={styles.metricValue}>{formatPercent(summary?.successRate ?? 0)}</p>
-        </div>
-        <div style={styles.metric}>
-          <p style={styles.metricLabel}>Tokens</p>
-          <p style={styles.metricValue}>{formatCompactNumber(summary?.totalTokens ?? 0)}</p>
-        </div>
-        <div style={styles.metric}>
-          <p style={styles.metricLabel}>Cost</p>
-          <p style={styles.metricValue}>{formatMoney(summary?.totalCost ?? 0)}</p>
-        </div>
-      </section>
-
-      {uiState.activeTab === 'accounts' && (
-        <section style={styles.tableWrap}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Account</th>
-                <th style={styles.th}>Channels</th>
-                <th style={styles.th}>Calls</th>
-                <th style={styles.th}>Failures</th>
-                <th style={styles.th}>Tokens</th>
-                <th style={styles.th}>Latency</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accountRows.map((row) => (
-                <tr key={row.id}>
-                  <td style={styles.td}>
-                    <strong>{row.displayAccount}</strong>
-                    <div style={styles.mono}>{row.authIndices.join(', ') || DASH}</div>
-                  </td>
-                  <td style={styles.td}>{row.channels.join(', ') || DASH}</td>
-                  <td style={styles.td}>{row.totalCalls.toLocaleString()}</td>
-                  <td style={styles.td}>{row.failureCalls.toLocaleString()}</td>
-                  <td style={styles.td}>{formatCompactNumber(row.totalTokens)}</td>
-                  <td style={styles.td}>{formatLatency(row.averageLatencyMs)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {uiState.activeTab === 'keys' && (
-        <section style={styles.tableWrap}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Key</th>
-                <th style={styles.th}>Sources</th>
-                <th style={styles.th}>Calls</th>
-                <th style={styles.th}>Failures</th>
-                <th style={styles.th}>Tokens</th>
-                <th style={styles.th}>Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {apiKeyRows.map((row) => (
-                <tr key={row.id}>
-                  <td style={styles.td}>
-                    <strong>{row.apiKeyLabel}</strong>
-                    <div style={styles.mono}>{row.apiKeyHash}</div>
-                  </td>
-                  <td style={styles.td}>{row.sourceLabels.join(', ') || DASH}</td>
-                  <td style={styles.td}>{row.totalCalls.toLocaleString()}</td>
-                  <td style={styles.td}>{row.failureCalls.toLocaleString()}</td>
-                  <td style={styles.td}>{formatCompactNumber(row.totalTokens)}</td>
-                  <td style={styles.td}>{formatMoney(row.totalCost)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {uiState.activeTab === 'realtime' && (
-        <section style={styles.tableWrap}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Time</th>
-                <th style={styles.th}>Source</th>
-                <th style={styles.th}>Model</th>
-                <th style={styles.th}>Endpoint</th>
-                <th style={styles.th}>Tokens</th>
-                <th style={styles.th}>Logs</th>
-              </tr>
-            </thead>
-            <tbody>
-              {eventRows.map((row) => (
-                <tr key={row.id}>
-                  <td style={styles.td}>{formatUnixTimestamp(row.timestampMs)}</td>
-                  <td style={styles.td}>
-                    <strong>{row.label}</strong>
-                    <div style={styles.mono}>{row.authIndex || DASH}</div>
-                  </td>
-                  <td style={styles.td}>{row.model}</td>
-                  <td style={styles.td}>{row.endpoint}</td>
-                  <td style={styles.td}>{formatCompactNumber(row.totalTokens)}</td>
-                  <td style={styles.td}>
-                    <a href={row.logsPath}>Open logs</a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div style={{ padding: 12, display: 'flex', justifyContent: 'space-between' }}>
-            <span style={styles.mono}>
-              next_before_ms={cursor.beforeMs ?? DASH} next_before_id={cursor.beforeId ?? DASH}
-            </span>
-            <button
-              id="monitoring-load-more"
-              type="button"
-              style={styles.button}
-              disabled={!analytics.hasMore || analytics.loading}
-              onClick={() => void loadNextPage()}
-            >
-              Load more
-            </button>
-          </div>
-        </section>
-      )}
-    </main>
+      <UsageImportProgressModal
+        open={usageImportProgress.open}
+        file={usageImportProgress.file}
+        decision={usageImportProgress.decision}
+        status={usageImportProgress.status}
+        progress={usageImportProgress.progress}
+        error={usageImportProgress.error}
+        t={t}
+        onPause={handleUsageImportPause}
+        onResume={handleUsageImportResume}
+        onCancel={handleUsageImportCancel}
+        onClose={handleUsageImportProgressClose}
+      />
+    </div>
   );
 }

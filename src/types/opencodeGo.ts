@@ -128,6 +128,26 @@ export interface OpenCodeGoQuotaResponse {
   diagnostics: OpenCodeGoIdentityStatus[];
 }
 
+export interface OpenCodeGoQuotaWindow {
+  usagePercent: number;
+  percentRemaining: number;
+  resetInSec: number;
+  resetTimeISO?: string;
+}
+
+export interface OpenCodeGoQuota {
+  rolling?: OpenCodeGoQuotaWindow;
+  weekly?: OpenCodeGoQuotaWindow;
+  monthly?: OpenCodeGoQuotaWindow;
+}
+
+export interface OpenCodeGoQuotaResult {
+  entry_name: string;
+  quota?: OpenCodeGoQuota;
+  error?: string;
+  timestamp: string;
+}
+
 export interface OpenCodeGoReferralResponse {
   workspace: string;
   code?: string;

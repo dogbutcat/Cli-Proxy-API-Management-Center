@@ -13,6 +13,7 @@ import type {
   OpenCodeGoQuotaConfig,
   OpenCodeGoQuotaEntry,
   OpenCodeGoQuotaIdentityGroup,
+  OpenCodeGoQuotaResult,
   OpenCodeGoQuotaResponse,
   OpenCodeGoQuotaGroup,
   OpenCodeGoQuotaGroupWire,
@@ -79,6 +80,32 @@ const readOptionalRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+
+const looksLikeLegacyQuotaResult = (obj: Record<string, unknown>): boolean =>
+  typeof obj.entry_name === 'string' ||
+  typeof obj['entry-name'] === 'string' ||
+  typeof obj.entryName === 'string' ||
+  isPlainRecord(obj.quota);
+
+export const normalizeQuotaResult = (data: unknown): OpenCodeGoQuotaResult => {
+  const wrapped =
+    isPlainRecord(data) && isPlainRecord(data.quota) && looksLikeLegacyQuotaResult(data.quota)
+      ? data.quota
+      : data;
+  if (!isPlainRecord(wrapped)) {
+    return { entry_name: '', timestamp: '', error: 'Invalid quota response' };
+  }
+
+  return {
+    entry_name:
+      readText(wrapped.entry_name) || readText(wrapped['entry-name']) || readText(wrapped.entryName),
+    quota: isPlainRecord(wrapped.quota)
+      ? (wrapped.quota as OpenCodeGoQuotaResult['quota'])
+      : undefined,
+    error: readText(wrapped.error) || undefined,
+    timestamp: readText(wrapped.timestamp),
+  };
+};
 
 const readFirstText = (...values: unknown[]): string => {
   for (const value of values) {
@@ -193,6 +220,9 @@ export const normalizeOpenCodeGoIdentity = (
     input.entry,
     input.entryId,
     input.entry_id,
+    input.opencodeGoEntryName,
+    input.opencode_go_entry_name,
+    input.id,
     input.authIndex,
     input.auth_index
   );
@@ -594,6 +624,67 @@ const readNumber = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const formatLegacyResetSeconds = (seconds: number | null): string => {
+  if (seconds === null || seconds <= 0) return '-';
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  if (days > 0) return `Refreshes in ${days}d ${hours}h`;
+  if (hours > 0) return `Refreshes in ${hours}h ${minutes}m`;
+  return `Refreshes in ${minutes}m`;
+};
+
+const readLegacyQuotaWindow = (
+  quota: Record<string, unknown>,
+  key: string,
+  label: string
+): CodexQuotaWindow | null => {
+  const raw = readOptionalRecord(quota[key]);
+  if (!raw) return null;
+  const remaining = readNumber(raw.percentRemaining ?? raw.percent_remaining);
+  const used = readNumber(raw.usedPercent ?? raw.used_percent);
+  const usedPercent = remaining !== null ? 100 - remaining : used;
+  return {
+    id: key,
+    label,
+    usedPercent,
+    resetLabel: formatLegacyResetSeconds(readNumber(raw.resetInSec ?? raw.reset_in_sec)),
+  };
+};
+
+const buildLegacyQuotaWindows = (quota: Record<string, unknown>): CodexQuotaWindow[] =>
+  [
+    readLegacyQuotaWindow(quota, 'rolling', 'Rolling'),
+    readLegacyQuotaWindow(quota, 'weekly', 'Weekly'),
+    readLegacyQuotaWindow(quota, 'monthly', 'Monthly'),
+  ].filter((window): window is CodexQuotaWindow => window !== null);
+
+const looksLikeLegacyQuotaWindows = (value: unknown): value is Record<string, unknown> => {
+  const quota = readOptionalRecord(value);
+  if (!quota) return false;
+  return ['rolling', 'weekly', 'monthly'].some((key) => readOptionalRecord(quota[key]) !== null);
+};
+
+const extractLegacyQuotaResult = (
+  payload: unknown
+): { record: Record<string, unknown>; quota: Record<string, unknown> } | null => {
+  const record = readRecord(payload);
+  if (looksLikeLegacyQuotaWindows(record.quota)) {
+    return { record, quota: readRecord(record.quota) };
+  }
+
+  const wrapped = readOptionalRecord(record.quota);
+  if (wrapped && looksLikeLegacyQuotaWindows(wrapped.quota)) {
+    return { record: wrapped, quota: readRecord(wrapped.quota) };
+  }
+
+  if (looksLikeLegacyQuotaWindows(record)) {
+    return { record, quota: record };
+  }
+
+  return null;
+};
+
 const normalizeUsageWindow = (
   id: string,
   label: string,
@@ -629,6 +720,39 @@ const buildUsageWindows = (usage: CodexUsagePayload | null): CodexQuotaWindow[] 
 };
 
 export const normalizeOpenCodeGoQuotaResponse = (payload: unknown): OpenCodeGoQuotaResponse => {
+  const legacy = extractLegacyQuotaResult(payload);
+  if (legacy) {
+    const entry = {
+      identity: normalizeOpenCodeGoIdentity({
+        provider: 'opencode-go',
+        entry: readFirstText(
+          legacy.record.entry,
+          legacy.record.entryName,
+          legacy.record.entry_name,
+          legacy.record['entry-name']
+        ),
+        legacy: true,
+      }),
+      windows: buildLegacyQuotaWindows(legacy.quota),
+      usage: null,
+      raw: legacy.record,
+    };
+    const identityKey = entry.identity.identityKey || 'legacy:quota';
+    return {
+      groups: [
+        {
+          identityKey,
+          identity: entry.identity,
+          entries: [entry],
+          windows: [...entry.windows],
+          diagnostic: entry.identity.status,
+        },
+      ],
+      entries: [entry],
+      diagnostics: collectDiagnostics([entry]),
+    };
+  }
+
   const entries = extractWireEntries<OpenCodeGoQuotaGroupWire>(payload, [
     'entries',
     'items',
@@ -689,6 +813,15 @@ export const opencodeGoApi = {
   refreshQuota: async (entry: string): Promise<OpenCodeGoQuotaResponse> => {
     const { apiClient } = await import('./client');
     return normalizeOpenCodeGoQuotaResponse(
+      await apiClient.post<unknown>(
+        `${OPENCODE_GO_QUOTA_ROUTE}/${encodeURIComponent(readText(entry))}/refresh`
+      )
+    );
+  },
+
+  refreshQuotaByEntryName: async (entry: string): Promise<OpenCodeGoQuotaResult> => {
+    const { apiClient } = await import('./client');
+    return normalizeQuotaResult(
       await apiClient.post<unknown>(
         `${OPENCODE_GO_QUOTA_ROUTE}/${encodeURIComponent(readText(entry))}/refresh`
       )

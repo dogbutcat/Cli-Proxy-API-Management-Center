@@ -1,282 +1,228 @@
-import type { CSSProperties } from 'react';
+import type { TFunction } from 'i18next';
 import { Modal } from '@/components/ui/Modal';
 import {
   IconAlertTriangle,
   IconCheckCircle2,
+  IconFileText,
   IconLoader2,
   IconRefreshCw,
   IconTrash2,
-  IconUpload,
 } from '@/components/ui/icons';
-import type { UsageImportSession } from '@/services/api/usageService';
-import {
-  classifyUsageImportRecovery,
-  getUsageImportProgressPercent,
-  type UsageImportRecovery,
-} from '../services/usageImportSession';
+import { formatFileSize } from '@/utils/format';
+import type {
+  UsageImportUploadDecision,
+  UsageImportUploadProgress,
+} from '@/features/monitoring/services/usageImportSession';
+import styles from '../MonitoringCenterPage.module.scss';
+
+export type UsageImportProgressStatus =
+  | 'idle'
+  | 'running'
+  | 'paused'
+  | 'cancelling'
+  | 'cancelled'
+  | 'success'
+  | 'error';
 
 type UsageImportProgressModalProps = {
   open: boolean;
-  session?: UsageImportSession | null;
-  recovery?: UsageImportRecovery | null;
-  busy?: boolean;
-  error?: string | null;
+  file: File | null;
+  decision: UsageImportUploadDecision | null;
+  status: UsageImportProgressStatus;
+  progress: UsageImportUploadProgress | null;
+  error: string;
+  t: TFunction;
+  onPause: () => void;
+  onResume: () => void;
+  onCancel: () => void;
   onClose: () => void;
-  onCancel?: () => void;
-  onRetry?: () => void;
-  onRestart?: () => void;
 };
 
-const styles = {
-  body: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 16,
-  },
-  statusHeader: {
-    display: 'flex',
-    gap: 12,
-    alignItems: 'center',
-  },
-  iconShell: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    display: 'grid',
-    placeItems: 'center',
-    background: 'var(--bg-secondary)',
-    color: 'var(--accent-color)',
-  },
-  title: {
-    margin: 0,
-    color: 'var(--text-primary)',
-    fontSize: 16,
-    fontWeight: 700,
-  },
-  subtitle: {
-    margin: '3px 0 0',
-    color: 'var(--text-secondary)',
-    fontSize: 13,
-  },
-  progressTrack: {
-    position: 'relative',
-    overflow: 'hidden',
-    height: 10,
-    borderRadius: 8,
-    background: 'var(--bg-tertiary, rgba(127,127,127,0.18))',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 8,
-    background: 'var(--accent-color)',
-    transition: 'width 180ms ease',
-  },
-  metaGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: 10,
-  },
-  metaItem: {
-    padding: 10,
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    background: 'var(--bg-secondary)',
-  },
-  metaLabel: {
-    margin: 0,
-    color: 'var(--text-secondary)',
-    fontSize: 12,
-  },
-  metaValue: {
-    margin: '5px 0 0',
-    color: 'var(--text-primary)',
-    fontVariantNumeric: 'tabular-nums',
-    overflowWrap: 'anywhere',
-  },
-  alert: {
-    display: 'flex',
-    gap: 8,
-    alignItems: 'flex-start',
-    padding: 10,
-    borderRadius: 8,
-    border: '1px solid color-mix(in srgb, var(--amber-color, #c78100) 45%, transparent)',
-    background: 'color-mix(in srgb, var(--amber-color, #c78100) 10%, transparent)',
-    color: 'var(--text-primary)',
-  },
-  footer: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 10,
-    justifyContent: 'flex-end',
-  },
-  button: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 7,
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    padding: '10px 12px',
-    background: 'var(--bg-primary)',
-    color: 'var(--text-primary)',
-    cursor: 'pointer',
-  },
-  dangerButton: {
-    borderColor: 'color-mix(in srgb, var(--danger-color, #dc2626) 55%, transparent)',
-    color: 'var(--danger-color, #dc2626)',
-  },
-  primaryButton: {
-    borderColor: 'var(--accent-color)',
-    background: 'var(--accent-color)',
-    color: 'var(--accent-contrast, #fff)',
-  },
-} satisfies Record<string, CSSProperties>;
-
-const formatBytes = (value: number): string =>
-  new Intl.NumberFormat(undefined, {
-    notation: value >= 10_000 ? 'compact' : 'standard',
-    maximumFractionDigits: 1,
-  }).format(value);
-
-const describeRecovery = (recovery: UsageImportRecovery | null | undefined): string => {
-  if (!recovery) return 'No import session is active.';
-  if (recovery.state === 'recoverable') return 'This import can resume from the saved upload offset.';
-  if (recovery.state === 'completed') return 'Import completed and local recovery metadata was cleared.';
-  if (recovery.reason === 'expired') return 'The saved import session expired. Start a new import.';
-  if (recovery.reason === 'file_mismatch') return 'The selected file does not match the saved session.';
-  return 'This import cannot resume. Start a new import.';
+const fallbackText = (t: TFunction, key: string, fallback: string, values?: object) => {
+  const label = t(key, { defaultValue: fallback, ...(values ?? {}) });
+  return label === key ? fallback : label;
 };
 
-const getStatusIcon = (
-  session: UsageImportSession | null | undefined,
-  recovery: UsageImportRecovery | null | undefined,
-  busy: boolean | undefined
+const formatPercent = (uploadedBytes: number, totalBytes: number): number => {
+  if (!Number.isFinite(totalBytes) || totalBytes <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((uploadedBytes / totalBytes) * 100)));
+};
+
+const describePhase = (
+  t: TFunction,
+  status: UsageImportProgressStatus,
+  progress: UsageImportUploadProgress | null
 ) => {
-  if (busy || session?.status === 'uploading' || session?.status === 'processing') {
-    return <IconLoader2 size={18} aria-hidden="true" />;
+  if (status === 'paused') {
+    return fallbackText(t, 'usage_stats.import_progress_paused', 'Paused');
   }
-  if (session?.status === 'completed' || recovery?.state === 'completed') {
-    return <IconCheckCircle2 size={18} aria-hidden="true" />;
+  if (status === 'cancelling') {
+    return fallbackText(t, 'usage_stats.import_progress_cancelling', 'Cancelling');
   }
-  if (recovery?.state === 'restart_required' || session?.status === 'failed') {
-    return <IconAlertTriangle size={18} aria-hidden="true" />;
+  if (status === 'cancelled') {
+    return fallbackText(t, 'usage_stats.import_progress_cancelled', 'Cancelled');
   }
-  return <IconUpload size={18} aria-hidden="true" />;
+  if (status === 'success') {
+    return fallbackText(t, 'usage_stats.import_progress_success', 'Completed');
+  }
+  if (status === 'error') {
+    return fallbackText(t, 'usage_stats.import_progress_error', 'Failed');
+  }
+
+  switch (progress?.phase) {
+    case 'creating':
+      return fallbackText(t, 'usage_stats.import_progress_creating', 'Creating session');
+    case 'resuming':
+      return fallbackText(t, 'usage_stats.import_progress_resuming', 'Resuming upload');
+    case 'uploading':
+      return fallbackText(t, 'usage_stats.import_progress_uploading', 'Uploading');
+    case 'completing':
+      return fallbackText(t, 'usage_stats.import_progress_completing', 'Importing');
+    case 'completed':
+      return fallbackText(t, 'usage_stats.import_progress_success', 'Completed');
+    case 'cancelled':
+      return fallbackText(t, 'usage_stats.import_progress_cancelled', 'Cancelled');
+    default:
+      return fallbackText(t, 'usage_stats.import_progress_waiting', 'Waiting');
+  }
 };
 
 export function UsageImportProgressModal({
   open,
-  session,
-  recovery,
-  busy = false,
+  file,
+  decision,
+  status,
+  progress,
   error,
-  onClose,
+  t,
+  onPause,
+  onResume,
   onCancel,
-  onRetry,
-  onRestart,
+  onClose,
 }: UsageImportProgressModalProps) {
-  const resolvedRecovery = recovery ?? classifyUsageImportRecovery(session, null);
-  const percent = session ? getUsageImportProgressPercent(session) : 0;
-  const canCancel = Boolean(onCancel && session && !['completed', 'cancelled'].includes(session.status));
-  const canRetry = Boolean(onRetry && resolvedRecovery.state === 'recoverable');
-  const canRestart = Boolean(onRestart && resolvedRecovery.state === 'restart_required');
-  const statusText = session
-    ? `${session.status} - ${percent}%`
-    : resolvedRecovery.state === 'recoverable'
-      ? 'Recoverable session'
-      : 'No active import';
+  const uploadedBytes = progress?.uploadedBytes ?? 0;
+  const totalBytes = progress?.totalBytes ?? file?.size ?? 0;
+  const percent =
+    status === 'success' ? 100 : formatPercent(uploadedBytes, totalBytes);
+  const isSessionUpload = decision?.strategy === 'session';
+  const canPause = status === 'running' && isSessionUpload;
+  const canResume = status === 'paused' && isSessionUpload;
+  const canCancel = (status === 'running' || status === 'paused') && isSessionUpload;
+  const canClose = status === 'success' || status === 'error' || status === 'cancelled';
+  const session = progress?.session;
+  const phaseLabel = describePhase(t, status, progress);
+  const statusTone =
+    status === 'success' ? styles.importProgressToneSuccess
+    : status === 'error' ? styles.importProgressToneError
+    : status === 'paused' || status === 'cancelled' ? styles.importProgressToneWarning
+    : '';
+
+  const footer = (
+    <div className={styles.importProgressFooter}>
+      {canPause ? (
+        <button type="button" className={styles.actionButton} onClick={onPause}>
+          <IconRefreshCw size={15} />
+          <span>{fallbackText(t, 'common.pause', 'Pause')}</span>
+        </button>
+      ) : null}
+      {canResume ? (
+        <button
+          type="button"
+          className={`${styles.actionButton} ${styles.actionButtonPrimary}`}
+          onClick={onResume}
+        >
+          <IconRefreshCw size={15} />
+          <span>{fallbackText(t, 'common.resume', 'Resume')}</span>
+        </button>
+      ) : null}
+      {canCancel ? (
+        <button type="button" className={styles.actionButton} onClick={onCancel}>
+          <IconTrash2 size={15} />
+          <span>{t('common.cancel')}</span>
+        </button>
+      ) : null}
+      {canClose ? (
+        <button
+          type="button"
+          className={`${styles.actionButton} ${styles.actionButtonPrimary}`}
+          onClick={onClose}
+        >
+          <span>{t('common.close', { defaultValue: 'Close' })}</span>
+        </button>
+      ) : null}
+    </div>
+  );
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
-      title="Usage import"
-      closeDisabled={busy}
-      footer={
-        <div style={styles.footer}>
-          {canCancel && (
-            <button
-              id="usage-import-cancel"
-              type="button"
-              style={{ ...styles.button, ...styles.dangerButton }}
-              onClick={onCancel}
-              disabled={busy}
-            >
-              <IconTrash2 size={16} aria-hidden="true" />
-              Cancel
-            </button>
-          )}
-          {canRetry && (
-            <button
-              id="usage-import-retry"
-              type="button"
-              style={styles.button}
-              onClick={onRetry}
-              disabled={busy}
-            >
-              <IconRefreshCw size={16} aria-hidden="true" />
-              Resume
-            </button>
-          )}
-          {canRestart && (
-            <button
-              id="usage-import-restart"
-              type="button"
-              style={{ ...styles.button, ...styles.primaryButton }}
-              onClick={onRestart}
-              disabled={busy}
-            >
-              <IconUpload size={16} aria-hidden="true" />
-              Restart
-            </button>
-          )}
-          <button id="usage-import-close" type="button" style={styles.button} onClick={onClose} disabled={busy}>
-            Close
-          </button>
-        </div>
-      }
+      title={fallbackText(t, 'usage_stats.import_progress_title', 'Import progress')}
+      onClose={canClose ? onClose : () => {}}
+      closeDisabled={!canClose}
+      footer={footer}
+      className={styles.monitorModal}
       width={560}
     >
-      <div style={styles.body} aria-live="polite">
-        <div style={styles.statusHeader}>
-          <div style={styles.iconShell}>{getStatusIcon(session, resolvedRecovery, busy)}</div>
+      <div className={styles.importProgressBody}>
+        <div className={`${styles.importProgressStatus} ${statusTone}`}>
+          {status === 'success' ? (
+            <IconCheckCircle2 size={20} />
+          ) : status === 'error' ? (
+            <IconAlertTriangle size={20} />
+          ) : (
+            <IconLoader2 size={20} className={styles.importProgressSpinner} />
+          )}
           <div>
-            <p style={styles.title}>{statusText}</p>
-            <p style={styles.subtitle}>{describeRecovery(resolvedRecovery)}</p>
+            <strong>{phaseLabel}</strong>
+            <span>
+              {isSessionUpload
+                ? fallbackText(
+                    t,
+                    'usage_stats.import_progress_resumable',
+                    'Resumable session upload'
+                  )
+                : fallbackText(t, 'usage_stats.import_progress_single_post', 'Direct import')}
+            </span>
           </div>
         </div>
 
-        <div
-          role="progressbar"
-          aria-label="Usage import progress"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-          style={styles.progressTrack}
-        >
-          <div style={{ ...styles.progressFill, width: `${percent}%` }} />
+        <div className={styles.importProgressFile}>
+          <IconFileText size={18} />
+          <div>
+            <strong>{file?.name ?? fallbackText(t, 'common.file', 'File')}</strong>
+            <span>
+              {formatFileSize(totalBytes)}
+              {session?.status ? ` · ${session.status}` : ''}
+            </span>
+          </div>
         </div>
 
-        {session && (
-          <div style={styles.metaGrid}>
-            <div style={styles.metaItem}>
-              <p style={styles.metaLabel}>File</p>
-              <p style={styles.metaValue}>{session.filename}</p>
-            </div>
-            <div style={styles.metaItem}>
-              <p style={styles.metaLabel}>Uploaded</p>
-              <p style={styles.metaValue}>
-                {formatBytes(session.receivedBytes)} / {formatBytes(session.sizeBytes)}
-              </p>
-            </div>
+        <div className={styles.importProgressMeter} aria-label={phaseLabel}>
+          <div className={styles.importProgressMeterTrack}>
+            <span style={{ width: `${percent}%` }} />
           </div>
-        )}
+          <div className={styles.importProgressMeta}>
+            <span>{percent}%</span>
+            <span>
+              {formatFileSize(uploadedBytes)} / {formatFileSize(totalBytes)}
+            </span>
+          </div>
+        </div>
 
-        {(error || session?.error) && (
-          <div style={styles.alert} role="alert">
-            <IconAlertTriangle size={16} aria-hidden="true" />
-            <span>{error || session?.error}</span>
-          </div>
-        )}
+        {session ? (
+          <dl className={styles.importProgressDetails}>
+            <div>
+              <dt>{fallbackText(t, 'usage_stats.import_progress_session', 'Session')}</dt>
+              <dd>{session.id}</dd>
+            </div>
+            <div>
+              <dt>{fallbackText(t, 'usage_stats.import_progress_received', 'Received')}</dt>
+              <dd>{formatFileSize(session.receivedBytes)}</dd>
+            </div>
+          </dl>
+        ) : null}
+
+        {error ? <p className={styles.importProgressError}>{error}</p> : null}
       </div>
     </Modal>
   );

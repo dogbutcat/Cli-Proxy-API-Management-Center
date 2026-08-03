@@ -162,3 +162,6 @@ export const XAI_API_REQUEST_HEADERS = {
   Authorization: 'Bearer $TOKEN$',
   accept: 'application/json',
 };
+
+export const ANTIGRAVITY_AVAILABLE_MODELS_URLS: string[] = [];
+export const ANTIGRAVITY_QUOTA_SUMMARY_URLS: string[] = [];

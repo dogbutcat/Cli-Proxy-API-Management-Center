@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { TFunction } from 'i18next';
 import { formatCompactNumber, formatPercent } from '../src/utils/format';
-import { getProviderKeyCounts } from '../src/features/dashboard/hooks/useDashboardOverview';
+import type { DashboardSummary } from '../src/services/api/usageService';
+import {
+  buildProviderTrafficFromDashboardSummary,
+  buildTrafficWindowFromDashboardSummary,
+  getProviderKeyCounts,
+} from '../src/features/dashboard/hooks/useDashboardOverview';
 import {
   axisMax,
   formatRoutingStrategyLabel,
@@ -25,6 +30,154 @@ const routingStrategyTestLabels: Record<string, string> = {
 
 const tRouting = ((key: string, options?: { value?: string }) =>
   routingStrategyTestLabels[key] ?? `Unknown (${options?.value ?? ''})`) as TFunction;
+
+const dashboardSummaryFixture = (overrides: Partial<DashboardSummary> = {}): DashboardSummary => ({
+  generatedAtMs: 1000,
+  window: {
+    todayStartMs: 0,
+    nowMs: 1000,
+    rolling30mStartMs: 0,
+  },
+  today: {
+    totalCalls: 33,
+    successCalls: 3,
+    failureCalls: 30,
+    successRate: 3 / 33,
+    inputTokens: 1209,
+    outputTokens: 213,
+    reasoningTokens: 174,
+    cachedTokens: 2672,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 2672,
+    totalTokens: 4268,
+    totalCost: 0,
+    averageLatencyMs: 1362,
+    zeroTokenCalls: 0,
+  },
+  rolling30m: {
+    rpm: 0,
+    tpm: 0,
+    totalCalls: 0,
+    totalTokens: 0,
+  },
+  topModelsToday: [],
+  trafficTimeline: [],
+  todayRequestHealthTimeline: {
+    fromMs: 0,
+    toMs: 1_800_000,
+    bucketMs: 600_000,
+    totalCalls: 33,
+    successCalls: 3,
+    failureCalls: 30,
+    successRate: 3 / 33,
+    points: [
+      {
+        bucketMs: 0,
+        calls: 10,
+        tokens: 0,
+        success: 0,
+        failure: 10,
+        successRate: 0,
+        failureRate: 1,
+        tone: 'bad',
+        intensity: 1,
+        future: false,
+      },
+      {
+        bucketMs: 600_000,
+        calls: 21,
+        tokens: 1496,
+        success: 1,
+        failure: 20,
+        successRate: 1 / 21,
+        failureRate: 20 / 21,
+        tone: 'bad',
+        intensity: 1,
+        future: false,
+      },
+      {
+        bucketMs: 1_200_000,
+        calls: 2,
+        tokens: 2772,
+        success: 2,
+        failure: 0,
+        successRate: 1,
+        failureRate: 0,
+        tone: 'good',
+        intensity: 0.1,
+        future: false,
+      },
+      {
+        bucketMs: 1_800_000,
+        calls: 5,
+        tokens: 0,
+        success: 5,
+        failure: 0,
+        successRate: 1,
+        failureRate: 0,
+        tone: 'future',
+        intensity: 0,
+        future: true,
+      },
+    ],
+  },
+  providerActivity: [
+    {
+      provider: 'opencode-go',
+      calls: 4,
+      successCalls: 1,
+      failureCalls: 3,
+      successRate: 0.25,
+      tokens: 100,
+    },
+    {
+      provider: 'antigravity',
+      calls: 1,
+      successCalls: 1,
+      failureCalls: 0,
+      successRate: 1,
+      tokens: 50,
+    },
+  ],
+  channelHealth: [
+    {
+      source: 'source-1',
+      sourceHash: 'source-1',
+      authIndex: 'auth-1',
+      authProviderSnapshot: 'opencode-go',
+      authLabelSnapshot: 'key-1',
+      accountSnapshot: 'account-1',
+      apiKeyHash: 'hash-1',
+      calls: 4,
+      failures: 3,
+      tokens: 100,
+      cost: 0,
+      averageLatencyMs: 1000,
+      successRate: 0.25,
+      failureRate: 0.75,
+      tone: 'bad',
+    },
+    {
+      source: 'source-2',
+      sourceHash: 'source-2',
+      authIndex: 'auth-2',
+      authProviderSnapshot: 'antigravity',
+      authLabelSnapshot: 'key-2',
+      accountSnapshot: 'account-2',
+      apiKeyHash: 'hash-2',
+      calls: 1,
+      failures: 0,
+      tokens: 50,
+      cost: 0,
+      averageLatencyMs: 800,
+      successRate: 1,
+      failureRate: 0,
+      tone: 'good',
+    },
+  ],
+  recentFailures: [],
+  ...overrides,
+});
 
 describe('formatCompactNumber', () => {
   test('leaves values below one thousand alone', () => {
@@ -134,6 +287,53 @@ describe('getDashboardTodayStartMs', () => {
     expect(start.getMinutes()).toBe(0);
     expect(start.getSeconds()).toBe(0);
     expect(start.getMilliseconds()).toBe(0);
+  });
+});
+
+describe('dashboard summary traffic', () => {
+  test('uses usage summary health buckets instead of stale provider recent requests', () => {
+    const traffic = buildTrafficWindowFromDashboardSummary(dashboardSummaryFixture());
+
+    expect(traffic?.total).toBe(33);
+    expect(traffic?.totalSuccess).toBe(3);
+    expect(traffic?.totalFailure).toBe(30);
+    expect(traffic?.successRate).toBeCloseTo((3 / 33) * 100);
+    expect(traffic?.buckets).toHaveLength(3);
+  });
+
+  test('aggregates provider activity from provider rollup', () => {
+    const providers = buildProviderTrafficFromDashboardSummary(dashboardSummaryFixture());
+
+    expect(providers[0]).toMatchObject({
+      id: 'opencode-go',
+      credentials: 0,
+      success: 1,
+      failure: 3,
+      total: 4,
+      successRate: 25,
+    });
+    expect(providers[1]).toMatchObject({
+      id: 'antigravity',
+      success: 1,
+      failure: 0,
+      total: 1,
+      successRate: 100,
+    });
+  });
+
+  test('falls back to channel health when provider rollup is absent', () => {
+    const providers = buildProviderTrafficFromDashboardSummary(
+      dashboardSummaryFixture({ providerActivity: [] })
+    );
+
+    expect(providers[0]).toMatchObject({
+      id: 'opencode-go',
+      credentials: 1,
+      success: 1,
+      failure: 3,
+      total: 4,
+      successRate: 25,
+    });
   });
 });
 

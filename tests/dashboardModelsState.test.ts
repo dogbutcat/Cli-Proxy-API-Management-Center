@@ -59,6 +59,19 @@ const baseSummary = (overrides: Partial<DashboardSummary> = {}): DashboardSummar
       successRate: 100,
     },
   ],
+  trafficTimeline: [],
+  todayRequestHealthTimeline: {
+    fromMs: 0,
+    toMs: 1000,
+    bucketMs: 600_000,
+    totalCalls: 12,
+    successCalls: 10,
+    failureCalls: 2,
+    successRate: 10 / 12,
+    points: [],
+  },
+  providerActivity: [],
+  channelHealth: [],
   recentFailures: [
     {
       eventHash: 'failure-1',

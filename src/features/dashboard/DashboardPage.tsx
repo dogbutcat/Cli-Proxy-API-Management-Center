@@ -2,12 +2,17 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
+  IconAlertTriangle,
   IconBot,
+  IconChartLine,
+  IconDatabaseZap,
   IconFileText,
+  IconKey,
+  IconRefreshCw,
   IconSidebarConfig,
   IconSidebarLogs,
+  IconSidebarMonitor,
   IconSidebarQuota,
-  IconSidebarSystem,
 } from '@/components/ui/icons';
 import { useAuthStore } from '@/stores';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
@@ -18,12 +23,10 @@ import {
   formatPercent,
   formatUnixTimestamp,
 } from '@/utils/format';
-import { useDashboardOverview } from './hooks/useDashboardOverview';
-import { LiveWire } from './components/LiveWire';
 import { Meter } from './components/Meter';
 import { Sparkline } from './components/Sparkline';
 import { ThroughputChart } from './components/ThroughputChart';
-import { useCountUp, useRevealGroup, useRevealOnScroll } from '@/hooks/motion';
+import { useDashboardOverview } from './hooks/useDashboardOverview';
 import {
   formatRoutingStrategyLabel,
   providerLabel,
@@ -31,11 +34,10 @@ import {
   toneForSuccessRate,
   type MeterTone,
 } from './utils';
-import styles from './dashboard.module.scss';
+import styles from './DashboardPage.module.scss';
 
-const DASH = '—';
+const DASH = '-';
 
-/** KPI accent strip: semantic tiles use state colors, neutral tiles stay quiet. */
 const TILE_ACCENTS: Record<MeterTone, string> = {
   good: 'var(--viz-success)',
   warning: 'var(--amber-color)',
@@ -43,12 +45,32 @@ const TILE_ACCENTS: Record<MeterTone, string> = {
   idle: 'var(--text-quaternary)',
 };
 
-/** Large figures use grouped digits below six places, then compact to avoid overflow. */
 const formatHeadline = (value: number): string =>
   value < 100_000 ? value.toLocaleString() : formatCompactNumber(value);
 
+type IconNode = React.ReactNode;
+
+interface StatTile {
+  key: string;
+  label: string;
+  value: string;
+  hint: string;
+  icon: IconNode;
+  to: string;
+  meter?: number | null;
+  tone?: MeterTone;
+}
+
+interface RuntimeRow {
+  label: string;
+  value: string;
+  tone?: 'on' | 'off';
+  mono?: boolean;
+}
+
 export function DashboardPage() {
   const { t, i18n } = useTranslation();
+  const apiBase = useAuthStore((state) => state.apiBase);
   const serverVersion = useAuthStore((state) => state.serverVersion);
   const serverBuildDate = useAuthStore((state) => state.serverBuildDate);
 
@@ -57,25 +79,16 @@ export function DashboardPage() {
     connected,
     config,
     counts,
+    providerKeyCounts,
     traffic,
     providers,
     credentials,
     usage,
     refresh,
+    authFilesLoading,
   } = useDashboardOverview();
 
   useHeaderRefresh(refresh, connected);
-
-  /* Hero/static grids reveal as groups; async chart/provider sections reveal as whole blocks. */
-  const heroRef = useRevealGroup<HTMLElement>();
-  const statsRef = useRevealGroup<HTMLElement>(0.12);
-  const usageRef = useRevealGroup<HTMLElement>();
-  const trafficRef = useRevealOnScroll<HTMLElement>();
-  const fleetRef = useRevealOnScroll<HTMLElement>();
-  const detailRef = useRevealGroup<HTMLElement>();
-  const ctaRef = useRevealGroup<HTMLElement>();
-
-  const animatedTotal = useCountUp(traffic.total, connected);
 
   const windowLabel = useMemo(() => {
     if (traffic.windowMinutes <= 0) return DASH;
@@ -85,81 +98,61 @@ export function DashboardPage() {
     return t('dashboard.window_hm', { hours, minutes });
   }, [traffic.windowMinutes, t]);
 
-  const heroSparkPoints = useMemo(
-    () => traffic.buckets.map((bucket) => bucket.success + bucket.failed),
-    [traffic.buckets]
-  );
-
-  const routingStrategy = useMemo(() => {
-    return formatRoutingStrategyLabel(t, config?.routingStrategy) || DASH;
-  }, [config?.routingStrategy, t]);
-
   const unknownProviderLabel = t('dashboard.provider_unknown');
   const successRateTone = toneForSuccessRate(traffic.successRate);
   const usageSummary = usage.summary;
   const usageStatus = usage.status;
-  const usageStatusText =
-    usage.loading && !usageSummary
-      ? t('dashboard.usage_state_loading', { defaultValue: 'Loading usage data' })
-      : usage.unsupported
-        ? t('dashboard.usage_state_unsupported', { defaultValue: 'Usage store unsupported' })
-        : usage.stale
-          ? t('dashboard.usage_state_stale', { defaultValue: 'Showing last good usage data' })
-          : usage.partial
-            ? t('dashboard.usage_state_partial', { defaultValue: 'Partial usage data' })
-            : usage.updatedAtMs
-              ? t('dashboard.usage_state_updated', {
-                  defaultValue: 'Updated {{time}}',
-                  time: formatUnixTimestamp(usage.updatedAtMs, i18n.language),
-                })
-              : t('dashboard.usage_state_idle', { defaultValue: 'Waiting for usage data' });
-  const usageStatusTone: MeterTone =
-    usage.summaryState === 'error' || usage.statusState === 'error'
-      ? 'critical'
-      : usage.partial || usage.stale
-        ? 'warning'
-        : usage.summaryState === 'ok' || usage.statusState === 'ok'
-          ? 'good'
-          : 'idle';
+  const providerTraffic = providers.slice(0, 7);
 
-  /** The title is a computed verdict, with the trailing period acting as the status light. */
-  const verdict = useMemo(() => {
-    if (!connected) {
-      return connectionStatus === 'connecting'
-        ? { key: 'hero_verdict_connecting', accent: 'var(--amber-color)' }
-        : { key: 'hero_verdict_offline', accent: 'var(--text-quaternary)' };
-    }
-    if (traffic.total === 0 || traffic.successRate === null) {
-      return { key: 'hero_verdict_idle', accent: 'var(--text-quaternary)' };
-    }
-    const keyByTone: Record<MeterTone, string> = {
-      good: 'hero_verdict_good',
-      warning: 'hero_verdict_warning',
-      critical: 'hero_verdict_critical',
-      idle: 'hero_verdict_idle',
-    };
-    return { key: keyByTone[successRateTone], accent: TILE_ACCENTS[successRateTone] };
-  }, [connected, connectionStatus, traffic.total, traffic.successRate, successRateTone]);
-
-  /* The period breathes only when traffic is alive; offline/quiet states stay still. */
-  const heroAlive = connected && traffic.total > 0;
-
-  const connectionLabel = t(
+  const statusLabel = t(
     connectionStatus === 'connected'
       ? 'common.connected'
       : connectionStatus === 'connecting'
         ? 'common.connecting'
         : 'common.disconnected'
   );
-  const versionLabel = serverVersion ? `v${serverVersion.trim().replace(/^[vV]+/, '')}` : null;
-  const heroMetaLine = [versionLabel, connectionLabel].filter(Boolean).join(' · ');
 
-  const statTiles = [
+  const statusTone =
+    connectionStatus === 'connected'
+      ? styles.statusConnected
+      : connectionStatus === 'connecting'
+        ? styles.statusConnecting
+        : styles.statusDisconnected;
+
+  const routingStrategy = useMemo(
+    () => formatRoutingStrategyLabel(t, config?.routingStrategy) || DASH,
+    [config?.routingStrategy, t]
+  );
+
+  const providerBreakdown = useMemo(
+    () =>
+      [
+        ['gemini', providerKeyCounts?.gemini ?? 0],
+        ['interactions', providerKeyCounts?.interactions ?? 0],
+        ['codex', providerKeyCounts?.codex ?? 0],
+        ['claude', providerKeyCounts?.claude ?? 0],
+        ['xai', providerKeyCounts?.xai ?? 0],
+        ['vertex', providerKeyCounts?.vertex ?? 0],
+        ['openai', providerKeyCounts?.openai ?? 0],
+      ]
+        .map(([id, count]) => ({ id: String(id), count: Number(count) }))
+        .filter((item) => item.count > 0),
+    [providerKeyCounts]
+  );
+
+  const heroSparkPoints = useMemo(
+    () => traffic.buckets.map((bucket) => bucket.success + bucket.failed),
+    [traffic.buckets]
+  );
+
+  const statTiles: StatTile[] = [
     {
       key: 'success',
       label: t('dashboard.success_rate'),
       value: traffic.successRate === null ? DASH : formatPercent(traffic.successRate),
       hint: t('dashboard.stat_success_hint', { total: traffic.total.toLocaleString() }),
+      icon: <IconChartLine size={20} />,
+      to: '/monitoring',
       meter: traffic.successRate,
       tone: successRateTone,
     },
@@ -173,54 +166,31 @@ export function DashboardPage() {
             disabled: credentials.disabled + credentials.unavailable,
           })
         : t('dashboard.stat_credentials_empty'),
+      icon: <IconFileText size={20} />,
+      to: '/auth-files',
       meter:
         credentials && credentials.total > 0
           ? (credentials.active / credentials.total) * 100
           : null,
-      tone: undefined,
+      tone: credentials && credentials.disabled + credentials.unavailable > 0 ? 'warning' : 'good',
     },
     {
       key: 'providerKeys',
       label: t('dashboard.stat_provider_keys'),
       value: counts.providerKeys === null ? DASH : counts.providerKeys.toLocaleString(),
       hint: t('dashboard.stat_provider_keys_hint'),
-      meter: null,
-      tone: undefined,
+      icon: <IconKey size={20} />,
+      to: '/ai-providers',
     },
     {
       key: 'models',
       label: t('dashboard.stat_models'),
       value: counts.models === null ? DASH : counts.models.toLocaleString(),
       hint: t('dashboard.stat_models_hint'),
-      meter: null,
-      tone: undefined,
+      icon: <IconBot size={20} />,
+      to: '/system#available-models',
     },
   ];
-
-  const runtimeRows: Array<{ label: string; value: string; mono?: boolean }> = [
-    { label: t('dashboard.runtime_routing'), value: routingStrategy },
-    { label: t('dashboard.runtime_retry'), value: String(config?.requestRetry ?? 0) },
-    {
-      label: t('dashboard.runtime_management_keys'),
-      value: counts.managementKeys === null ? DASH : String(counts.managementKeys),
-    },
-    { label: t('dashboard.runtime_version'), value: serverVersion?.trim() || DASH },
-    {
-      label: t('dashboard.runtime_build'),
-      value: formatDateValue(serverBuildDate, i18n.language) || DASH,
-    },
-    { label: t('dashboard.runtime_proxy'), value: config?.proxyUrl?.trim() || DASH, mono: true },
-  ];
-
-  const runtimeToggles = config
-    ? [
-        { label: t('dashboard.runtime_debug'), on: Boolean(config.debug) },
-        { label: t('dashboard.runtime_file_logging'), on: Boolean(config.loggingToFile) },
-        { label: t('dashboard.runtime_request_log'), on: Boolean(config.requestLog) },
-        { label: t('dashboard.runtime_ws_auth'), on: Boolean(config.wsAuth) },
-        { label: t('dashboard.runtime_model_prefix'), on: Boolean(config.forceModelPrefix) },
-      ]
-    : [];
 
   const todayUsageRows = usageSummary
     ? [
@@ -296,150 +266,166 @@ export function DashboardPage() {
       ]
     : [];
 
-  const ctaCards = [
+  const runtimeRows: RuntimeRow[] = [
+    { label: t('dashboard.runtime_routing'), value: routingStrategy },
+    { label: t('dashboard.runtime_retry'), value: String(config?.requestRetry ?? 0) },
+    {
+      label: t('dashboard.runtime_management_keys'),
+      value: counts.managementKeys === null ? DASH : String(counts.managementKeys),
+    },
+    { label: t('dashboard.runtime_version'), value: serverVersion?.trim() || DASH },
+    {
+      label: t('dashboard.runtime_build'),
+      value: formatDateValue(serverBuildDate, i18n.language) || DASH,
+    },
+    { label: t('dashboard.runtime_proxy'), value: config?.proxyUrl?.trim() || DASH, mono: true },
+    {
+      label: t('dashboard.runtime_debug'),
+      value: config?.debug ? t('common.enabled') : t('common.disabled'),
+      tone: config?.debug ? 'on' : 'off',
+    },
+    {
+      label: t('dashboard.runtime_file_logging'),
+      value: config?.loggingToFile ? t('common.enabled') : t('common.disabled'),
+      tone: config?.loggingToFile ? 'on' : 'off',
+    },
+    {
+      label: t('dashboard.runtime_request_log'),
+      value: config?.requestLog ? t('common.enabled') : t('common.disabled'),
+      tone: config?.requestLog ? 'on' : 'off',
+    },
+    {
+      label: t('dashboard.runtime_ws_auth'),
+      value: config?.wsAuth ? t('common.enabled') : t('common.disabled'),
+      tone: config?.wsAuth ? 'on' : 'off',
+    },
+  ];
+
+  const usageStatusText =
+    usage.loading && !usageSummary
+      ? t('dashboard.usage_state_loading', { defaultValue: 'Loading usage data' })
+      : usage.unsupported
+        ? t('dashboard.usage_state_unsupported', { defaultValue: 'Usage store unsupported' })
+        : usage.stale
+          ? t('dashboard.usage_state_stale', { defaultValue: 'Showing last good usage data' })
+          : usage.partial
+            ? t('dashboard.usage_state_partial', { defaultValue: 'Partial usage data' })
+            : usage.updatedAtMs
+              ? t('dashboard.usage_state_updated', {
+                  defaultValue: 'Updated {{time}}',
+                  time: formatUnixTimestamp(usage.updatedAtMs, i18n.language),
+                })
+              : t('dashboard.usage_state_idle', { defaultValue: 'Waiting for usage data' });
+
+  const issueCount =
+    (credentials?.disabled ?? 0) +
+    (credentials?.unavailable ?? 0) +
+    traffic.totalFailure +
+    usage.issues.length;
+
+  const actions = [
     {
       to: '/ai-providers',
-      icon: <IconBot size={20} />,
-      title: t('nav.ai_providers'),
-      description: t('dashboard.cta_providers_desc'),
+      icon: <IconBot size={18} />,
+      label: t('nav.ai_providers'),
+      meta: t('dashboard.cta_providers_desc'),
     },
     {
-      to: '/auth-files',
-      icon: <IconFileText size={20} />,
-      title: t('nav.auth_files'),
-      description: t('dashboard.cta_auth_files_desc'),
-    },
-    {
-      to: '/config',
-      icon: <IconSidebarConfig size={20} />,
-      title: t('nav.config_management'),
-      description: t('dashboard.cta_config_desc'),
+      to: '/monitoring',
+      icon: <IconSidebarMonitor size={18} />,
+      label: t('nav.monitoring'),
+      meta: t('dashboard.cta_inspect_logs', { defaultValue: 'Inspect logs' }),
     },
     {
       to: '/quota',
-      icon: <IconSidebarQuota size={20} />,
-      title: t('nav.quota_management'),
-      description: t('dashboard.cta_quota_desc'),
+      icon: <IconSidebarQuota size={18} />,
+      label: t('nav.quota_management'),
+      meta: t('dashboard.cta_quota_desc'),
+    },
+    {
+      to: '/config',
+      icon: <IconSidebarConfig size={18} />,
+      label: t('nav.config_management'),
+      meta: t('dashboard.cta_config_desc'),
     },
     {
       to: '/logs',
-      icon: <IconSidebarLogs size={20} />,
-      title: t('nav.logs'),
-      description: t('dashboard.cta_logs_desc'),
-    },
-    {
-      to: '/system',
-      icon: <IconSidebarSystem size={20} />,
-      title: t('nav.system_info'),
-      description: t('dashboard.cta_system_desc'),
+      icon: <IconSidebarLogs size={18} />,
+      label: t('nav.logs'),
+      meta: t('dashboard.cta_logs_desc'),
     },
   ];
 
   return (
     <div className={styles.page}>
-      <div className={styles.ambient} aria-hidden="true">
-        <span className={styles.washTop} />
-        <span className={styles.gridWash} />
-      </div>
-
-      {/* ---------- Hero ---------- */}
-      <section className={styles.hero} ref={heroRef}>
-        <div className={styles.heroCopy}>
-          <h1 className={styles.heroTitle} data-reveal>
-            {t(`dashboard.${verdict.key}`)}
-            <span
-              className={`${styles.heroPeriod} ${heroAlive ? styles.heroPeriodLive : ''}`}
-              style={{ color: verdict.accent }}
-            >
-              {t('dashboard.hero_period')}
+      <header className={styles.header}>
+        <div className={styles.headerMain}>
+          <span className={styles.eyebrow}>{t('nav.dashboard')}</span>
+          <h1>{t('dashboard.title', { defaultValue: 'Dashboard' })}</h1>
+          <div className={styles.headerMeta}>
+            <span className={`${styles.statusPill} ${statusTone}`}>
+              <i aria-hidden="true" />
+              {statusLabel}
             </span>
-          </h1>
-          <p className={styles.heroMeta} data-reveal>
-            {heroMetaLine}
-          </p>
-          <div className={styles.heroActions} data-reveal>
-            <Link to="/ai-providers" className={styles.primaryAction}>
-              {t('dashboard.cta_manage_providers')}
-            </Link>
-            <Link to="/logs" className={styles.ghostAction}>
-              {t('dashboard.cta_inspect_logs')}{' '}
-              <span className={styles.linkArrow} aria-hidden="true">
-                →
-              </span>
-            </Link>
+            <span className={styles.metaText}>{apiBase || DASH}</span>
+            {serverVersion && <span className={styles.metaText}>v{serverVersion}</span>}
           </div>
         </div>
+        <button
+          className={styles.refreshButton}
+          type="button"
+          onClick={() => {
+            void refresh();
+          }}
+          disabled={!connected}
+        >
+          <IconRefreshCw size={17} />
+          {t('common.refresh')}
+        </button>
+      </header>
 
-        <div className={styles.heroPanel} data-reveal="scale">
-          <div className={styles.heroPanelTop}>
-            <span className={styles.heroPanelLabel}>{t('dashboard.hero_requests_label')}</span>
-            {connected && (
-              <span className={styles.liveBadge}>
-                <i className={styles.liveDot} aria-hidden="true" />
-                {t('dashboard.hero_live')}
+      <section className={styles.overviewGrid} aria-label={t('dashboard.stats_aria')}>
+        <article className={`${styles.panel} ${styles.trafficSummary}`}>
+          <div className={styles.panelHeader}>
+            <div>
+              <span className={styles.eyebrow}>
+                {t('dashboard.hero_requests_label', { defaultValue: 'Requests handled' })}
               </span>
-            )}
-          </div>
-          <strong className={styles.heroFigure}>
-            {connected ? formatHeadline(animatedTotal) : DASH}
-          </strong>
-          <span className={styles.heroPanelMeta}>
-            {t('dashboard.hero_window_meta', { window: windowLabel })}
-          </span>
-          {traffic.total > 0 && (
-            <div className={styles.ratioBar} aria-hidden="true">
-              {traffic.totalSuccess > 0 && (
-                <span
-                  className={`${styles.ratioSegment} ${styles.splitSuccess}`}
-                  style={{ flexGrow: traffic.totalSuccess }}
-                />
-              )}
-              {traffic.totalFailure > 0 && (
-                <span
-                  className={`${styles.ratioSegment} ${styles.splitFailure}`}
-                  style={{ flexGrow: traffic.totalFailure }}
-                />
-              )}
+              <h2>{connected ? formatHeadline(traffic.total) : DASH}</h2>
             </div>
-          )}
-          <div className={styles.heroSplit}>
-            <span className={styles.heroSplitItem}>
-              <i className={`${styles.splitSwatch} ${styles.splitSuccess}`} aria-hidden="true" />
-              {t('stats.success')}
-              <b>{traffic.totalSuccess.toLocaleString()}</b>
-            </span>
-            <span className={styles.heroSplitItem}>
-              <i className={`${styles.splitSwatch} ${styles.splitFailure}`} aria-hidden="true" />
-              {t('stats.failure')}
-              <b>{traffic.totalFailure.toLocaleString()}</b>
+            <span className={`${styles.metricBadge} ${styles[`tone_${successRateTone}`]}`}>
+              {traffic.successRate === null ? DASH : formatPercent(traffic.successRate)}
             </span>
           </div>
-        </div>
-
-        <div className={styles.heroWire}>
-          <LiveWire
+          <Sparkline
             points={heroSparkPoints}
             ariaLabel={t('dashboard.hero_spark_label', { window: windowLabel })}
+            className={styles.summarySparkline}
           />
-        </div>
-      </section>
+          <div className={styles.summaryFooter}>
+            <span>{t('dashboard.hero_window_meta', { window: windowLabel })}</span>
+            <span>
+              {t('stats.success')} {traffic.totalSuccess.toLocaleString()} / {t('stats.failure')}{' '}
+              {traffic.totalFailure.toLocaleString()}
+            </span>
+          </div>
+        </article>
 
-      {/* ---------- KPI ---------- */}
-      <section className={styles.statsRow} ref={statsRef} aria-label={t('dashboard.stats_aria')}>
         {statTiles.map((tile) => (
-          <article
-            key={tile.key}
-            className={styles.statTile}
-            data-reveal
-            style={
-              {
-                '--tile-accent': tile.tone ? TILE_ACCENTS[tile.tone] : 'var(--border-hover)',
-              } as React.CSSProperties
-            }
-          >
+          <Link key={tile.key} className={`${styles.panel} ${styles.statTile}`} to={tile.to}>
+            <div
+              className={styles.statIcon}
+              style={
+                {
+                  '--tile-accent': tile.tone ? TILE_ACCENTS[tile.tone] : 'var(--color-primary)',
+                } as React.CSSProperties
+              }
+            >
+              {tile.icon}
+            </div>
             <span className={styles.statLabel}>{tile.label}</span>
-            <strong className={styles.statValue}>{tile.value}</strong>
-            {tile.meter !== null && tile.meter !== undefined && (
+            <strong>{tile.value}</strong>
+            {tile.meter !== undefined && (
               <Meter
                 value={tile.meter}
                 tone={tile.tone}
@@ -447,66 +433,104 @@ export function DashboardPage() {
                 className={styles.statMeter}
               />
             )}
-            <span className={styles.statHint}>{tile.hint}</span>
-          </article>
+            <p>{tile.hint}</p>
+          </Link>
         ))}
       </section>
 
-      {/* ---------- Local usage summary ---------- */}
-      <section className={styles.section} ref={usageRef}>
-        <header className={styles.sectionHead} data-reveal>
-          <span className={styles.eyebrow}>
-            {t('dashboard.usage_eyebrow', { defaultValue: 'Local usage' })}
-          </span>
-          <h2 className={styles.sectionTitle}>
-            {t('dashboard.usage_title', { defaultValue: 'Today, from the local store' })}
-          </h2>
-          <p className={styles.sectionDescription}>{usageStatusText}</p>
-        </header>
-
-        {usage.issues.length > 0 && (
-          <div className={styles.usageIssueStrip} data-reveal>
-            {usage.issues.slice(0, 2).map((issue, index) => (
-              <span key={`${issue.source}-${issue.kind ?? 'issue'}-${index}`}>
-                {issue.message ??
-                  t('dashboard.usage_issue_fallback', { defaultValue: 'Usage slice warning' })}
+      <section className={styles.mainGrid}>
+        <article className={`${styles.panel} ${styles.chartPanel}`}>
+          <div className={styles.panelHeader}>
+            <div>
+              <span className={styles.eyebrow}>
+                {t('dashboard.traffic_overview', { defaultValue: 'Traffic overview' })}
               </span>
-            ))}
+              <h2>{t('dashboard.traffic_window_title', { defaultValue: 'Recent request flow' })}</h2>
+            </div>
+            <Link to="/monitoring" className={styles.panelLink}>
+              {t('nav.monitoring')}
+            </Link>
           </div>
-        )}
+          <ThroughputChart traffic={traffic} />
+        </article>
 
-        <div className={styles.usageGrid}>
-          <article className={styles.usageCard} data-reveal>
-            <header className={styles.usageCardHead}>
-              <span className={styles.usageCardLabel}>
-                {t('dashboard.usage_summary_card', { defaultValue: 'Summary' })}
+        <aside className={`${styles.panel} ${styles.providerPanel}`}>
+          <div className={styles.panelHeader}>
+            <div>
+              <span className={styles.eyebrow}>
+                {t('dashboard.provider_activity', { defaultValue: 'Provider activity' })}
               </span>
-              <i
-                className={`${styles.usageStateDot} ${styles[`usageState_${usageStatusTone}`]}`}
-                aria-hidden="true"
-              />
-            </header>
-            <strong className={styles.usageFigure}>
-              {usageSummary ? formatHeadline(usageSummary.today.totalCalls) : DASH}
-            </strong>
-            <span className={styles.usageFigureHint}>
-              {usageSummary
-                ? t('dashboard.usage_rolling_meta', {
-                    defaultValue: '{{rpm}} RPM · {{tpm}} TPM over 30m',
-                    rpm: usageSummary.rolling30m.rpm.toLocaleString(),
-                    tpm: usageSummary.rolling30m.tpm.toLocaleString(),
-                  })
-                : t('dashboard.usage_no_summary', { defaultValue: 'No summary loaded' })}
-            </span>
-            {usageSummary && (
-              <Meter
-                value={usageSummary.today.successRate}
-                tone={toneForSuccessRate(usageSummary.today.successRate)}
-                ariaLabel={t('dashboard.success_rate')}
-                className={styles.usageMeter}
-              />
-            )}
-            <dl className={styles.usageMetricGrid}>
+              <h2>{providers.length.toLocaleString()}</h2>
+            </div>
+          </div>
+          {providerTraffic.length > 0 ? (
+            <ul className={styles.providerList}>
+              {providerTraffic.map((provider) => (
+                <li key={provider.id}>
+                  <div className={styles.providerRowTop}>
+                    <span>{providerLabel(provider.id, unknownProviderLabel)}</span>
+                    <b>{provider.total.toLocaleString()}</b>
+                  </div>
+                  <Meter
+                    value={provider.successRate}
+                    ariaLabel={provider.id}
+                    className={styles.providerMeter}
+                  />
+                  <div className={styles.providerRowMeta}>
+                    <span>
+                      {provider.credentials.toLocaleString()}{' '}
+                      {t('dashboard.stat_credentials').toLowerCase()}
+                    </span>
+                    <span>
+                      {t('stats.failure')} {provider.failure.toLocaleString()}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className={styles.emptyNote}>{t('dashboard.traffic_unavailable_hint')}</p>
+          )}
+        </aside>
+      </section>
+
+      <section className={styles.detailGrid}>
+        <article className={`${styles.panel} ${styles.usagePanel}`}>
+          <div className={styles.panelHeader}>
+            <div>
+              <span className={styles.eyebrow}>
+                {t('dashboard.usage_eyebrow', { defaultValue: 'Local usage' })}
+              </span>
+              <h2>{t('dashboard.usage_title', { defaultValue: 'Today, from the local store' })}</h2>
+            </div>
+            <span className={styles.metaText}>{usageStatusText}</span>
+          </div>
+
+          {usage.issues.length > 0 && (
+            <div className={styles.issueStrip}>
+              <IconAlertTriangle size={16} />
+              <span>
+                {usage.issues[0]?.message ??
+                  t('dashboard.usage_issue_fallback', {
+                    defaultValue: 'Usage slice warning',
+                  })}
+              </span>
+            </div>
+          )}
+
+          <div className={styles.usageStats}>
+            <div className={styles.usageHero}>
+              <span>{t('dashboard.today_requests', { defaultValue: 'Today requests' })}</span>
+              <strong>{usageSummary ? formatHeadline(usageSummary.today.totalCalls) : DASH}</strong>
+              {usageSummary && (
+                <Meter
+                  value={usageSummary.today.successRate}
+                  tone={toneForSuccessRate(usageSummary.today.successRate)}
+                  ariaLabel={t('dashboard.success_rate')}
+                />
+              )}
+            </div>
+            <dl>
               {todayUsageRows.map((row) => (
                 <div key={row.label}>
                   <dt>{row.label}</dt>
@@ -514,27 +538,7 @@ export function DashboardPage() {
                 </div>
               ))}
             </dl>
-          </article>
-
-          <article className={styles.usageCard} data-reveal>
-            <header className={styles.usageCardHead}>
-              <span className={styles.usageCardLabel}>
-                {t('dashboard.usage_tokens_card', { defaultValue: 'Tokens' })}
-              </span>
-              <span className={styles.usagePill}>
-                {usageSummary ? formatCompactNumber(usageSummary.today.zeroTokenCalls) : DASH}{' '}
-                {t('dashboard.usage_zero_token_calls', { defaultValue: 'zero-token' })}
-              </span>
-            </header>
-            <strong className={styles.usageFigure}>
-              {usageSummary ? formatHeadline(usageSummary.today.totalTokens) : DASH}
-            </strong>
-            <span className={styles.usageFigureHint}>
-              {t('dashboard.usage_tokens_hint', {
-                defaultValue: 'Prompt, output, cache, reasoning',
-              })}
-            </span>
-            <dl className={styles.usageMetricGrid}>
+            <dl>
               {tokenRows.map((row) => (
                 <div key={row.label}>
                   <dt>{row.label}</dt>
@@ -542,292 +546,156 @@ export function DashboardPage() {
                 </div>
               ))}
             </dl>
-          </article>
+          </div>
 
-          <article className={styles.usageCard} data-reveal>
-            <header className={styles.usageCardHead}>
-              <span className={styles.usageCardLabel}>
-                {t('dashboard.usage_models_card', { defaultValue: 'Models today' })}
+          <div className={styles.twoColumnLists}>
+            <div>
+              <h3>{t('dashboard.usage_models_card', { defaultValue: 'Models today' })}</h3>
+              {usageSummary && usageSummary.topModelsToday.length > 0 ? (
+                <ul className={styles.compactList}>
+                  {usageSummary.topModelsToday.slice(0, 5).map((model) => (
+                    <li key={model.model}>
+                      <span>{model.model || DASH}</span>
+                      <b>{model.calls.toLocaleString()}</b>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className={styles.emptyNote}>
+                  {t('dashboard.usage_models_empty', { defaultValue: 'No model usage today.' })}
+                </p>
+              )}
+            </div>
+            <div>
+              <h3>{t('dashboard.usage_store_card', { defaultValue: 'Collector & store' })}</h3>
+              {collectorRows.length > 0 ? (
+                <dl className={styles.compactDefinition}>
+                  {collectorRows.map((row) => (
+                    <div key={row.label}>
+                      <dt>{row.label}</dt>
+                      <dd>{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className={styles.emptyNote}>
+                  {usage.loading ? t('common.loading') : t('dashboard.usage_no_summary')}
+                </p>
+              )}
+            </div>
+          </div>
+        </article>
+
+        <article className={`${styles.panel} ${styles.healthPanel}`}>
+          <div className={styles.panelHeader}>
+            <div>
+              <span className={styles.eyebrow}>
+                {t('dashboard.health_status', { defaultValue: 'Health status' })}
               </span>
-            </header>
-            {usageSummary && usageSummary.topModelsToday.length > 0 ? (
-              <ul className={styles.usageList}>
-                {usageSummary.topModelsToday.map((model) => (
-                  <li key={model.model}>
-                    <span className={styles.usageListMain}>{model.model || DASH}</span>
-                    <span className={styles.usageListMeta}>
-                      {model.calls.toLocaleString()} · {formatCompactNumber(model.tokens)} ·{' '}
-                      {formatPercent(model.successRate)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className={styles.emptyNote}>
-                {t('dashboard.usage_models_empty', { defaultValue: 'No model usage today.' })}
-              </p>
-            )}
-          </article>
-
-          <article className={styles.usageCard} data-reveal>
-            <header className={styles.usageCardHead}>
-              <span className={styles.usageCardLabel}>
-                {t('dashboard.usage_failures_card', { defaultValue: 'Recent failures' })}
-              </span>
-            </header>
-            {usageSummary && usageSummary.recentFailures.length > 0 ? (
-              <ul className={styles.usageList}>
-                {usageSummary.recentFailures.map((failure) => (
-                  <li key={failure.eventHash || failure.requestId || failure.timestampMs}>
-                    <span className={styles.usageListMain}>
-                      {failure.model || failure.provider || DASH}
-                    </span>
-                    <span className={styles.usageListMeta}>
-                      {failure.failStatusCode ?? DASH} ·{' '}
-                      {failure.failSummary ??
-                        t('dashboard.usage_failure_fallback', { defaultValue: 'Request failed' })}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className={styles.emptyNote}>
-                {t('dashboard.usage_failures_empty', { defaultValue: 'No recent failures.' })}
-              </p>
-            )}
-          </article>
-
-          <article className={styles.usageCard} data-reveal>
-            <header className={styles.usageCardHead}>
-              <span className={styles.usageCardLabel}>
-                {t('dashboard.usage_store_card', { defaultValue: 'Collector & store' })}
-              </span>
-              <span className={styles.usagePill}>
-                {usageStatus?.source ?? usageStatus?.service ?? DASH}
-              </span>
-            </header>
-            <dl className={styles.usageMetricGrid}>
-              {collectorRows.map((row) => (
-                <div key={row.label}>
-                  <dt>{row.label}</dt>
-                  <dd>{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-            {usageStatus?.collector && (
-              <p className={styles.usageFigureHint}>
-                {t('dashboard.usage_collector_meta', {
-                  defaultValue: '{{inserted}} inserted · {{dropped}} dropped · {{skipped}} skipped',
-                  inserted: usageStatus.collector.totalInserted.toLocaleString(),
-                  dropped: usageStatus.collector.totalDropped.toLocaleString(),
-                  skipped: usageStatus.collector.totalSkipped.toLocaleString(),
-                })}
-              </p>
-            )}
-            {usageStatus?.collector?.lastError && (
-              <p className={styles.usageErrorText}>{usageStatus.collector.lastError}</p>
-            )}
-          </article>
-        </div>
-      </section>
-
-      {/* ---------- Traffic ---------- */}
-      <section className={styles.section} ref={trafficRef}>
-        <header className={styles.sectionHead}>
-          <span className={styles.eyebrow}>{t('dashboard.traffic_eyebrow')}</span>
-          <h2 className={styles.sectionTitle}>{t('dashboard.traffic_title')}</h2>
-          <p className={styles.sectionDescription}>
-            {t('dashboard.traffic_description', { window: windowLabel })}
-          </p>
-        </header>
-        <div className={styles.panel}>
-          <ThroughputChart traffic={traffic} />
-        </div>
-      </section>
-
-      {/* ---------- Provider fleet ---------- */}
-      <section className={styles.section} ref={fleetRef}>
-        <header className={styles.sectionHead}>
-          <span className={styles.eyebrow}>{t('dashboard.fleet_eyebrow')}</span>
-          <h2 className={styles.sectionTitle}>{t('dashboard.fleet_title')}</h2>
-          <p className={styles.sectionDescription}>{t('dashboard.fleet_description')}</p>
-        </header>
-        <div className={styles.panel}>
-          {providers.length === 0 ? (
-            <p className={styles.emptyNote}>{t('dashboard.fleet_empty')}</p>
-          ) : (
-            <ul className={styles.fleetList}>
-              {providers.map((provider, index) => (
-                <li key={provider.id} className={styles.fleetRow}>
-                  <span className={styles.fleetRank} aria-hidden="true">
-                    {String(index + 1).padStart(2, '0')}
-                  </span>
-                  <div className={styles.fleetIdentity}>
-                    <span className={styles.fleetName}>
-                      {providerLabel(provider.id, unknownProviderLabel)}
-                    </span>
-                    <span className={styles.fleetMeta}>
-                      {t('dashboard.fleet_credentials', { value: provider.credentials })}
-                    </span>
-                  </div>
-                  <Sparkline
-                    points={provider.buckets.map((bucket) => bucket.success + bucket.failed)}
-                    ariaLabel={t('dashboard.fleet_spark_label', {
-                      provider: providerLabel(provider.id, unknownProviderLabel),
-                    })}
-                    className={styles.fleetSpark}
-                  />
-                  <div className={styles.fleetNumbers}>
-                    <span className={styles.fleetTotal}>{provider.total.toLocaleString()}</span>
-                    <span className={styles.fleetTotalLabel}>{t('dashboard.fleet_requests')}</span>
-                  </div>
-                  <div className={styles.fleetRate}>
-                    <span className={styles.fleetRateValue}>
-                      {provider.successRate === null ? DASH : formatPercent(provider.successRate)}
-                    </span>
-                    <Meter
-                      value={provider.successRate}
-                      ariaLabel={t('dashboard.success_rate')}
-                      className={styles.fleetMeter}
-                    />
-                  </div>
+              <h2>{issueCount.toLocaleString()}</h2>
+            </div>
+            <IconDatabaseZap size={22} />
+          </div>
+          <dl className={styles.compactDefinition}>
+            <div>
+              <dt>{t('dashboard.stat_credentials')}</dt>
+              <dd>
+                {credentials
+                  ? `${credentials.active.toLocaleString()} / ${credentials.total.toLocaleString()}`
+                  : authFilesLoading
+                    ? t('common.loading')
+                    : DASH}
+              </dd>
+            </div>
+            <div>
+              <dt>{t('stats.failure')}</dt>
+              <dd>{traffic.totalFailure.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>{t('dashboard.usage_store_dead_letters', { defaultValue: 'Dead letters' })}</dt>
+              <dd>{usageStatus?.deadLetters.toLocaleString() ?? DASH}</dd>
+            </div>
+          </dl>
+          {credentials && credentials.byType.length > 0 && (
+            <ul className={styles.providerBreakdown}>
+              {credentials.byType.slice(0, 7).map((entry) => (
+                <li key={entry.type}>
+                  <span>{providerLabel(entry.type, unknownProviderLabel)}</span>
+                  <b>{entry.count.toLocaleString()}</b>
                 </li>
               ))}
             </ul>
           )}
-        </div>
-      </section>
+        </article>
 
-      {/* ---------- Credential health + runtime ---------- */}
-      <section className={styles.detailGrid} ref={detailRef}>
-        <div className={styles.panel} data-reveal>
-          <header className={styles.panelHead}>
-            <span className={styles.eyebrow}>{t('dashboard.health_eyebrow')}</span>
-            <h2 className={styles.panelTitle}>{t('dashboard.health_title')}</h2>
-          </header>
-          {!credentials || credentials.total === 0 ? (
-            <p className={styles.emptyNote}>{t('dashboard.health_empty')}</p>
-          ) : (
-            <>
-              <div className={styles.healthBar}>
-                {credentials.active > 0 && (
-                  <span
-                    className={`${styles.healthSegment} ${styles.healthActive}`}
-                    style={{ flexGrow: credentials.active }}
-                  />
-                )}
-                {credentials.unavailable > 0 && (
-                  <span
-                    className={`${styles.healthSegment} ${styles.healthUnavailable}`}
-                    style={{ flexGrow: credentials.unavailable }}
-                  />
-                )}
-                {credentials.disabled > 0 && (
-                  <span
-                    className={`${styles.healthSegment} ${styles.healthDisabled}`}
-                    style={{ flexGrow: credentials.disabled }}
-                  />
-                )}
-              </div>
-              <ul className={styles.healthLegend}>
-                <li>
-                  <i className={`${styles.healthKey} ${styles.healthActive}`} aria-hidden="true" />
-                  {t('dashboard.health_active')}
-                  <b>{credentials.active.toLocaleString()}</b>
-                </li>
-                <li>
-                  <i
-                    className={`${styles.healthKey} ${styles.healthUnavailable}`}
-                    aria-hidden="true"
-                  />
-                  {t('dashboard.health_unavailable')}
-                  <b>{credentials.unavailable.toLocaleString()}</b>
-                </li>
-                <li>
-                  <i
-                    className={`${styles.healthKey} ${styles.healthDisabled}`}
-                    aria-hidden="true"
-                  />
-                  {t('dashboard.health_disabled')}
-                  <b>{credentials.disabled.toLocaleString()}</b>
-                </li>
-              </ul>
-              <div className={styles.typeBreakdown}>
-                <span className={styles.typeBreakdownLabel}>{t('dashboard.health_by_type')}</span>
-                <ul className={styles.typeList}>
-                  {credentials.byType.map((entry) => (
-                    <li key={entry.type} className={styles.typeChip}>
-                      {providerLabel(entry.type, unknownProviderLabel)}
-                      <b>{entry.count.toLocaleString()}</b>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <Link to="/auth-files" className={styles.panelLink}>
-                {t('dashboard.health_link')}{' '}
-                <span className={styles.linkArrow} aria-hidden="true">
-                  →
-                </span>
-              </Link>
-            </>
-          )}
-        </div>
-
-        <div className={styles.panel} data-reveal>
-          <header className={styles.panelHead}>
-            <span className={styles.eyebrow}>{t('dashboard.runtime_eyebrow')}</span>
-            <h2 className={styles.panelTitle}>{t('dashboard.runtime_title')}</h2>
-          </header>
-          <dl className={styles.specList}>
+        <article className={`${styles.panel} ${styles.configPanel}`}>
+          <div className={styles.panelHeader}>
+            <div>
+              <span className={styles.eyebrow}>
+                {t('dashboard.current_config_summary')}
+              </span>
+              <h2>{t('nav.config_management')}</h2>
+            </div>
+            <Link to="/config" className={styles.panelLink}>
+              {t('dashboard.view_full_config')}
+            </Link>
+          </div>
+          <dl className={styles.runtimeGrid}>
             {runtimeRows.map((row) => (
-              <div key={row.label} className={styles.specRow}>
-                <dt className={styles.specLabel}>{row.label}</dt>
-                <dd className={`${styles.specValue} ${row.mono ? styles.specMono : ''}`}>
+              <div key={row.label}>
+                <dt>{row.label}</dt>
+                <dd
+                  className={[
+                    row.mono ? styles.monoValue : '',
+                    row.tone === 'on' ? styles.onValue : '',
+                    row.tone === 'off' ? styles.offValue : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
                   {row.value}
                 </dd>
               </div>
             ))}
           </dl>
-          {runtimeToggles.length > 0 && (
-            <ul className={styles.toggleList}>
-              {runtimeToggles.map((toggle) => (
-                <li
-                  key={toggle.label}
-                  className={`${styles.togglePill} ${toggle.on ? styles.toggleOn : styles.toggleOff}`}
-                >
-                  {toggle.label}
-                  <b>{toggle.on ? t('common.yes') : t('common.no')}</b>
+        </article>
+
+        <article className={`${styles.panel} ${styles.actionPanel}`}>
+          <div className={styles.panelHeader}>
+            <div>
+              <span className={styles.eyebrow}>
+                {t('dashboard.provider_keys_detail', {
+                  gemini: providerKeyCounts?.gemini ?? 0,
+                  codex: providerKeyCounts?.codex ?? 0,
+                  claude: providerKeyCounts?.claude ?? 0,
+                  openai: providerKeyCounts?.openai ?? 0,
+                })}
+              </span>
+              <h2>{t('dashboard.quick_actions', { defaultValue: 'Quick actions' })}</h2>
+            </div>
+          </div>
+          {providerBreakdown.length > 0 && (
+            <ul className={styles.providerBreakdown}>
+              {providerBreakdown.map((entry) => (
+                <li key={entry.id}>
+                  <span>{providerLabel(entry.id, unknownProviderLabel)}</span>
+                  <b>{entry.count.toLocaleString()}</b>
                 </li>
               ))}
             </ul>
           )}
-          <Link to="/config" className={styles.panelLink}>
-            {t('dashboard.runtime_link')}{' '}
-            <span className={styles.linkArrow} aria-hidden="true">
-              →
-            </span>
-          </Link>
-        </div>
-      </section>
-
-      {/* ---------- CTA ---------- */}
-      <section className={styles.section} ref={ctaRef}>
-        <header className={styles.sectionHead} data-reveal>
-          <span className={styles.eyebrow}>{t('dashboard.cta_eyebrow')}</span>
-          <h2 className={styles.sectionTitle}>{t('dashboard.cta_title')}</h2>
-        </header>
-        <div className={styles.ctaGrid}>
-          {ctaCards.map((card) => (
-            <Link key={card.to} to={card.to} className={styles.ctaCard} data-reveal>
-              <span className={styles.ctaIcon}>{card.icon}</span>
-              <span className={styles.ctaTitle}>{card.title}</span>
-              <span className={styles.ctaDescription}>{card.description}</span>
-              <span className={styles.ctaArrow} aria-hidden="true">
-                →
-              </span>
-            </Link>
-          ))}
-        </div>
+          <nav className={styles.actionList} aria-label={t('dashboard.quick_actions')}>
+            {actions.map((action) => (
+              <Link key={action.to} to={action.to}>
+                <span className={styles.actionIcon}>{action.icon}</span>
+                <span>
+                  <b>{action.label}</b>
+                  <small>{action.meta}</small>
+                </span>
+              </Link>
+            ))}
+          </nav>
+        </article>
       </section>
     </div>
   );
