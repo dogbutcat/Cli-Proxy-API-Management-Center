@@ -14,10 +14,18 @@ import { IconRefreshCw } from '@/components/ui/icons';
 import { bindQuotaClasses } from '@/features/quota/types';
 import { QUOTA_ADAPTERS, type QuotaCardState } from '@/features/quota/providers';
 import { buildQuotaFileEntry } from '@/features/quota/logic';
+import quotaStyles from '@/features/quota/components/QuotaBody.module.scss';
 import styles from './AuthFileQuota.module.scss';
 
 /** 认证文件卡片外衣：紧凑额度样式绑定成类型化契约（缺键在模块初始化即抛）。 */
-const compactQuotaClasses = bindQuotaClasses(styles, 'AuthFileQuota.module.scss');
+// Reuse quota-page elite badge style to avoid drift between hosts.
+const compactQuotaClasses = bindQuotaClasses(
+  {
+    ...styles,
+    elitePlanValue: quotaStyles.elitePlanValue,
+  },
+  'AuthFileQuota.module.scss'
+);
 
 const assertNever = (value: never): never => {
   throw new Error(`Unsupported quota type: ${value}`);
@@ -61,7 +69,7 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
 
   const refreshQuotaForFile = useCallback(async () => {
     if (disableControls) return;
-    if (isRuntimeOnlyAuthFile(file)) return;
+    if (isRuntimeOnlyAuthFile(file) && quotaType !== 'opencode-go') return;
     if (file.disabled) return;
     if (quota?.status === 'loading') return;
 
@@ -102,6 +110,7 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
     displayName,
     file,
     quota?.status,
+    quotaType,
     showNotification,
     t,
     updateQuotaState,
@@ -164,6 +173,23 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
   const quotaStatus = quota?.status ?? 'idle';
   const canRefreshQuota = !disableControls && !file.disabled && !resettingQuota;
   const canUseResetQuota = canRefreshQuota && quotaStatus !== 'loading';
+  const refreshQuotaAction =
+    quotaType === 'opencode-go' && quotaStatus !== 'idle' ? (
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        className={styles.quotaResetCreditButton}
+        onClick={() => void refreshQuotaForFile()}
+        disabled={!canRefreshQuota || quotaStatus === 'loading'}
+        loading={quotaStatus === 'loading'}
+        title={t('auth_files.quota_refresh_hint')}
+        aria-label={t('auth_files.quota_refresh_single')}
+      >
+        {quotaStatus !== 'loading' && <IconRefreshCw size={14} />}
+        {t('auth_files.quota_refresh_single')}
+      </Button>
+    ) : undefined;
   const showResetQuotaAction = quota !== undefined && Boolean(adapter.canResetQuota?.(quota));
   const resetQuotaAction =
     adapter.resetQuota && showResetQuotaAction ? (
@@ -212,8 +238,11 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
       ) : (
         <div className={styles.quotaMessage}>{t(`${adapter.i18nPrefix}.idle`)}</div>
       )}
-      {quotaStatus !== 'idle' && resetQuotaAction && (
-        <div className={styles.quotaCardActions}>{resetQuotaAction}</div>
+      {(refreshQuotaAction || resetQuotaAction) && (
+        <div className={styles.quotaCardActions}>
+          {resetQuotaAction}
+          {refreshQuotaAction}
+        </div>
       )}
     </div>
   );
