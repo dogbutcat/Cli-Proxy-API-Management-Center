@@ -203,16 +203,11 @@ button.quotaMessageAction {
   color: var(--amber-text);
 }
 
-/* Compact Codex Pro 20x value styling, matching the premium plan text chip shape. */
 .elitePlanValue {
   font-family: $font-mono;
-  font-size: $quota-font-size;
-  font-weight: 650;
-  color: #526379;
-}
-
-:global([data-theme='dark']) .elitePlanValue {
-  color: #c3d3e4;
+  font-size: 11px;
+  font-weight: 750;
+  color: var(--text-primary);
 }
 
 /* ---------- Antigravity 分组 ---------- */
