@@ -96,6 +96,7 @@ write_fixture() {
 	print -- '/usage/monitoring/analytics /usage/dashboard/summary api_key_hash source_hash' >"$REPO/src/services/api/usageService.ts"
 	print -- 'api_key_hash source_hash monitoring' >"$REPO/src/features/monitoring/index.ts"
 	print -- 'api_key_hash source_hash usage' >"$REPO/src/features/usage-analytics/index.ts"
+	print -- 'export const buildUsageHeatmapSummaryCards = () => computeCacheHitRate(summary) && "usage_analytics.cache_read_rate"' >"$REPO/src/features/usage-analytics/usageAnalyticsPresentation.ts"
 	print -- 'opencodeGo opencode-go x-api-key Qwen' >"$REPO/src/services/api/opencodeGo.ts"
 	print -- 'opencodeGo opencode-go' >"$REPO/src/types/opencodeGo.ts"
 	print -- 'opencodeGo opencode-go' >"$REPO/src/features/providers/descriptors.ts"
@@ -206,6 +207,12 @@ print -- 'connectivity without anthropic api key header' >"$REPO/src/features/pr
 git -C "$REPO" add src/features/providers/sheets/forms/useConnectivityTest.ts
 git -C "$REPO" commit -qm break-opencode-auth
 expect_fail "semantic opencode auth deletion" zsh "$GUARD" check "$base" HEAD "$REPO"
+
+git -C "$REPO" reset --hard -q "$base"
+print -- 'export const buildUsageHeatmapSummaryCards = () => []' >"$REPO/src/features/usage-analytics/usageAnalyticsPresentation.ts"
+git -C "$REPO" add src/features/usage-analytics/usageAnalyticsPresentation.ts
+git -C "$REPO" commit -qm break-usage-analytics-cache-card
+expect_fail "semantic usage analytics cache card deletion" zsh "$GUARD" check "$base" HEAD "$REPO"
 
 git -C "$REPO" reset --hard -q "$base"
 mkdir -p "$REPO/src/features/config/components/blocks"

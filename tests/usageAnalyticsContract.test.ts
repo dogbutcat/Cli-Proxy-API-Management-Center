@@ -4,10 +4,12 @@ import {
   adaptUsageAnalyticsData,
   buildUsageAnalyticsFilters,
   buildUsageAnalyticsInclude,
+  buildUsageSummary,
   maskApiKeyHash,
   resolveUsageApiKeyLabel,
   type UsageAnalyticsFiltersState,
 } from '../src/features/usage-analytics/usageAnalyticsModel';
+import { buildUsageHeatmapSummaryCards } from '../src/features/usage-analytics/usageAnalyticsPresentation';
 import type { MonitoringAnalyticsResponse } from '../src/services/api/usageService';
 
 const filters: UsageAnalyticsFiltersState = {
@@ -133,6 +135,8 @@ const analyticsFixture: MonitoringAnalyticsResponse = {
 };
 
 describe('usage analytics contract', () => {
+  const t = ((key: string) => key) as Parameters<typeof buildUsageHeatmapSummaryCards>[0]['t'];
+
   test('builds full aggregate include and canonical filters for the restored analytics page', () => {
     expect(buildUsageAnalyticsFilters(filters)).toEqual({
       models: ['qwen3.7-max'],
@@ -217,5 +221,26 @@ describe('usage analytics contract', () => {
     expect(JSON.stringify(row)).not.toContain('unsafe-account-secret');
     expect(JSON.stringify(row)).not.toContain('unsafe-api-key-secret');
     expect(JSON.stringify(row)).not.toContain('unsafe-cookie-secret');
+  });
+
+  test('keeps heatmap summary cache-hit card visible', () => {
+    const summary = buildUsageSummary({
+      ...analyticsFixture.summary,
+      input_tokens: 100,
+      cached_tokens: 0,
+      cache_read_tokens: 25,
+      cache_creation_tokens: 25,
+      total_tokens: 150,
+    });
+
+    const cards = buildUsageHeatmapSummaryCards({ locale: 'en-US', summary, t });
+    const cacheCard = cards.find((card) => card.icon === 'cache');
+
+    expect(cards).toHaveLength(5);
+    expect(cacheCard).toMatchObject({
+      label: 'usage_analytics.cache_read_rate',
+      meta: 'usage_analytics.metric_cached_tokens 50',
+      value: '16.7%',
+    });
   });
 });

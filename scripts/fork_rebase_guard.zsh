@@ -111,6 +111,9 @@ check_semantics() {
 	require_grep "$repo" "$ref" "usage-api" "/usage/dashboard/summary" src/services/api/usageService.ts || (( failures += 1 ))
 	require_grep "$repo" "$ref" "usage-api" "api_key_hash" src/services/api/usageService.ts src/features/usage-analytics src/features/monitoring || (( failures += 1 ))
 	require_grep "$repo" "$ref" "usage-api" "source_hash" src/services/api/usageService.ts src/features/usage-analytics src/features/monitoring || (( failures += 1 ))
+	require_grep "$repo" "$ref" "usage-analytics-cache" "buildUsageHeatmapSummaryCards" src/features/usage-analytics/usageAnalyticsPresentation.ts || (( failures += 1 ))
+	require_grep "$repo" "$ref" "usage-analytics-cache" "computeCacheHitRate(summary)" src/features/usage-analytics/usageAnalyticsPresentation.ts || (( failures += 1 ))
+	require_grep "$repo" "$ref" "usage-analytics-cache" "usage_analytics.cache_read_rate" src/features/usage-analytics/usageAnalyticsPresentation.ts || (( failures += 1 ))
 
 	require_grep "$repo" "$ref" "opencode-go" "opencodeGo" src/features/providers src/features/quota src/services/api src/types || (( failures += 1 ))
 	require_grep "$repo" "$ref" "opencode-go" "opencode-go" src/features/providers src/features/quota src/services/api src/types || (( failures += 1 ))

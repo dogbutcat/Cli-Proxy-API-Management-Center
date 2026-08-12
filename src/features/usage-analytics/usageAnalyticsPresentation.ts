@@ -526,41 +526,53 @@ export const buildUsageHeatmapSummaryCards = ({
   locale,
   summary,
   t,
-}: HeatmapSummaryCardsInput): UsageSummaryCard[] => [
-  {
-    accent: 'blue',
-    icon: 'calls',
-    label: t('usage_analytics.metric_request_count'),
-    meta: t('usage_analytics.summary_meta'),
-    value: formatMetricValue('requestCount', summary.requestCount),
-    valueTitle: formatFullNumber(summary.requestCount, locale),
-  },
-  {
-    accent: 'teal',
-    icon: 'tokens',
-    label: t('usage_analytics.metric_total_tokens'),
-    meta: t('usage_analytics.summary_meta'),
-    value: formatMetricValue('totalTokens', summary.totalTokens),
-    valueTitle: formatFullNumber(summary.totalTokens, locale),
-  },
-  {
-    accent: 'amber',
-    icon: 'cost',
-    label: t('usage_analytics.metric_estimated_cost'),
-    meta: t('usage_analytics.summary_cost_meta'),
-    value: formatMetricValue('estimatedCost', summary.estimatedCost),
-  },
-  {
-    accent: 'red',
-    icon: 'failure',
-    label: t('usage_analytics.failure_rate'),
-    meta: t('usage_analytics.metric_failure_count'),
-    tone: summary.failureCount > 0 ? 'bad' : 'good',
-    value: formatPercent(
-      summary.requestCount > 0 ? summary.failureCount / summary.requestCount : 0
-    ),
-  },
-];
+}: HeatmapSummaryCardsInput): UsageSummaryCard[] => {
+  const cacheTokens = summary.cachedTokens + summary.cacheReadTokens + summary.cacheCreationTokens;
+
+  return [
+    {
+      accent: 'blue',
+      icon: 'calls',
+      label: t('usage_analytics.metric_request_count'),
+      meta: t('usage_analytics.summary_meta'),
+      value: formatMetricValue('requestCount', summary.requestCount),
+      valueTitle: formatFullNumber(summary.requestCount, locale),
+    },
+    {
+      accent: 'teal',
+      icon: 'tokens',
+      label: t('usage_analytics.metric_total_tokens'),
+      meta: t('usage_analytics.summary_meta'),
+      value: formatMetricValue('totalTokens', summary.totalTokens),
+      valueTitle: formatFullNumber(summary.totalTokens, locale),
+    },
+    {
+      accent: 'amber',
+      icon: 'cost',
+      label: t('usage_analytics.metric_estimated_cost'),
+      meta: t('usage_analytics.summary_cost_meta'),
+      value: formatMetricValue('estimatedCost', summary.estimatedCost),
+    },
+    {
+      accent: 'red',
+      icon: 'failure',
+      label: t('usage_analytics.failure_rate'),
+      meta: t('usage_analytics.metric_failure_count'),
+      tone: summary.failureCount > 0 ? 'bad' : 'good',
+      value: formatPercent(
+        summary.requestCount > 0 ? summary.failureCount / summary.requestCount : 0
+      ),
+    },
+    {
+      accent: 'cyan',
+      icon: 'cache',
+      label: t('usage_analytics.cache_read_rate'),
+      meta: `${t('usage_analytics.metric_cached_tokens')} ${formatCompactNumber(cacheTokens)}`,
+      value: formatPercent(computeCacheHitRate(summary)),
+      valueTitle: formatFullNumber(cacheTokens, locale),
+    },
+  ];
+};
 
 export const buildCredentialDetailCards = ({
   locale,
