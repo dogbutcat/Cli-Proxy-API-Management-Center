@@ -11,6 +11,9 @@
     "test": "bun test",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
     "verify": "bun run test && bun run lint && bun run build",
+    "verify:fork": "zsh scripts/fork_feature_tests.zsh",
+    "guard:rebase": "zsh scripts/fork_rebase_guard.zsh",
+    "guard:selftest": "zsh scripts/fork_rebase_guard_test.zsh",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,scss}\"",
     "type-check": "tsc --noEmit"
   },
