@@ -47,7 +47,6 @@ describe('Claude provider dual-mode config', () => {
         apiKey: 'traditional-key',
         baseUrl: 'https://api.anthropic.com',
         weight: 7,
-        experimentalCchSigning: true,
       },
     ]);
     expect(config.claudeMultikeyEntries).toEqual([
